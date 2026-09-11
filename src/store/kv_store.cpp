@@ -207,8 +207,8 @@ void KVStore::Set(const std::string& key, const std::string& value) {
     if (snapshot_ != nullptr) {
       checkpoint_due = ++writes_since_snapshot_ == kSnapshotInterval;
     }
+    if (checkpoint_due) ScheduleCheckpoint();
   }
-  if (checkpoint_due) ScheduleCheckpoint();
 }
 
 std::optional<std::string> KVStore::Get(const std::string& key) const {
@@ -231,8 +231,8 @@ bool KVStore::Delete(const std::string& key) {
     if (snapshot_ != nullptr) {
       checkpoint_due = ++writes_since_snapshot_ == kSnapshotInterval;
     }
+    if (checkpoint_due) ScheduleCheckpoint();
   }
-  if (checkpoint_due) ScheduleCheckpoint();
   return erased;
 }
 
