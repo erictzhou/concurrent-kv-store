@@ -3,10 +3,17 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
+#include <atomic>
+#include <condition_variable>
+#include <exception>
+#include <mutex>
 #include <optional>
 #include <shared_mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
+#include <vector>
 
 namespace kv {
 namespace persistence {
@@ -20,19 +27,16 @@ namespace kv {
 namespace store {
 
 /**
- * @brief In-memory key-value store backed by an unordered map.
+ * @brief Sharded in-memory key-value store with optional WAL and checkpoints.
  *
- * KVStore is thread-safe for concurrent reads and exclusive mutations.
- * `Get()`, `Contains()`, and `Size()` may proceed concurrently. `Set()`,
- * `Delete()`, `Clear()`, snapshot operations, compaction, persistence reset,
- * and recovery are serialized with an exclusive lock.
+ * Each key maps deterministically to one of 64 shards. Foreground reads and
+ * writes hold only that shard's lock. Global operations acquire all shard
+ * locks in ascending order, so they see a consistent in-memory state.
  *
- * Write operations are serialized through KVStore, including WAL appends.
- * WAL and Snapshot objects are protected only when accessed through a single
- * KVStore instance. Direct concurrent use of the same WriteAheadLog or Snapshot
- * object outside KVStore, or through multiple KVStore instances, is
- * unsupported. Recovery methods are internally exclusive, but should still be
- * called during startup before serving live traffic.
+ * WAL submission precedes memory mutation. The shard lock remains held until
+ * the WAL policy's acknowledgement boundary, preserving same-key ordering.
+ * Snapshot I/O runs on a background thread after a brief global capture.
+ * Copy/move is supported only for stores without a configured Snapshot.
  */
 class KVStore {
  public:
@@ -48,6 +52,7 @@ class KVStore {
    */
   explicit KVStore(persistence::WriteAheadLog* wal,
                    persistence::Snapshot* snapshot = nullptr);
+  ~KVStore();
 
   KVStore(const KVStore& other);
   KVStore& operator=(const KVStore& other);
@@ -127,6 +132,9 @@ class KVStore {
    */
   bool CompactPersistence();
 
+  /** Waits for scheduled automatic checkpoint work and surfaces its failure. */
+  void WaitForCheckpoints();
+
   /**
    * @brief Loads a persisted snapshot directly into this store.
    *
@@ -150,22 +158,41 @@ class KVStore {
                             std::uint64_t offset = 0);
 
  private:
-  /**
-   * @brief Reader/writer lock protecting the live map and persistence handles.
-   */
+  /** Serializes administrative operations; foreground calls use shard locks. */
   mutable std::shared_mutex mutex_;
-  /** @brief Internal storage for key-value pairs. */
-  std::unordered_map<std::string, std::string> data_;
+  static constexpr std::size_t kShardCount = 64;
+  struct alignas(64) Shard {
+    mutable std::shared_mutex mutex;
+    std::unordered_map<std::string, std::string> data;
+  };
+  std::array<Shard, kShardCount> shards_;
+  std::vector<std::unique_lock<std::shared_mutex>> LockAllShardsExclusive();
+  std::vector<std::shared_lock<std::shared_mutex>> LockAllShardsShared() const;
   /** @brief Optional WAL used to persist future mutations. */
   persistence::WriteAheadLog* wal_ = nullptr;
   /** @brief Optional snapshot writer used to checkpoint the in-memory map. */
   persistence::Snapshot* snapshot_ = nullptr;
   /** @brief Number of write commands applied since the last snapshot. */
-  std::size_t writes_since_snapshot_ = 0;
+  std::atomic<std::size_t> writes_since_snapshot_{0};
+  std::mutex snapshot_mutex_;
+  std::mutex checkpoint_mutex_;
+  std::condition_variable checkpoint_ready_;
+  std::thread checkpoint_thread_;
+  bool checkpoint_requested_ = false;
+  bool checkpoint_active_ = false;
+  bool checkpoint_stopping_ = false;
+  std::uint64_t checkpoint_epoch_ = 0;
+  std::exception_ptr checkpoint_error_;
+
+  static std::size_t ShardIndex(const std::string& key);
+  std::unordered_map<std::string, std::string> CollectDataLocked() const;
+  void ReplaceDataLocked(std::unordered_map<std::string, std::string> data);
 
   static constexpr std::size_t kSnapshotInterval = 1000;
-  /** @brief Saves a compacted snapshot when enough writes have happened. */
-  void MaybeSnapshotLocked();
+  void CheckCheckpointError();
+  void ScheduleCheckpoint();
+  void CheckpointLoop();
+  void CancelPendingCheckpoint();
   /** @brief Writes a verified snapshot. Caller must hold mutex_ exclusively. */
   bool SaveSnapshotLocked();
   /**

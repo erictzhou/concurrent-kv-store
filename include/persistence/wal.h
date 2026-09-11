@@ -3,12 +3,27 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <condition_variable>
+#include <deque>
+#include <exception>
 #include <fstream>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
+#include <vector>
 
 namespace kv {
 namespace persistence {
+
+enum class DurabilityPolicy { Buffered, Sync, GroupCommit };
+
+struct WalStats {
+  std::uint64_t records = 0;
+  std::uint64_t sync_calls = 0;
+  std::vector<std::uint64_t> batch_histogram;
+};
 
 enum class WalReplayStatus {
   CleanEof,
@@ -30,7 +45,7 @@ struct WalReplayResult {
 };
 
 /**
- * @brief Append-only write-ahead log for durable SET and DELETE operations.
+ * @brief Append-only write-ahead log for SET and DELETE operations.
  *
  * WAL format v2 is a breaking format change from the original length-only
  * frame. Each record is:
@@ -43,7 +58,12 @@ struct WalReplayResult {
  *   DELETE: [uint8 op=2][uint32 key_size][key]
  *
  * The checksum covers only payload bytes. Replay validates the full frame and
- * checksum before applying any mutation.
+ * checksum before applying any mutation. The v2 format uses native byte order;
+ * cross-endian portability remains unsupported.
+ *
+ * Buffered acknowledges after userspace flush into the kernel page cache.
+ * Sync calls fdatasync for each record; GroupCommit batches records and calls
+ * fdatasync once per batch. GroupCommit acknowledgement waits for its batch.
  */
 class WriteAheadLog {
  public:
@@ -52,7 +72,18 @@ class WriteAheadLog {
    *
    * @param path Path to the WAL file.
    */
-  explicit WriteAheadLog(std::string path = "kv_store.wal");
+  explicit WriteAheadLog(std::string path = "kv_store.wal",
+                         DurabilityPolicy policy = DurabilityPolicy::Buffered,
+                         std::size_t max_batch = 32,
+                         std::uint32_t max_delay_us = 200);
+  ~WriteAheadLog();
+
+  WriteAheadLog(const WriteAheadLog&) = delete;
+  WriteAheadLog& operator=(const WriteAheadLog&) = delete;
+
+  WalStats GetStats() const;
+  void ResetStats();
+  void PinWriterToCpu(int cpu);
 
   /**
    * @brief Appends and flushes a SET record.
@@ -70,7 +101,7 @@ class WriteAheadLog {
   void AppendDelete(const std::string& key);
 
   /**
-   * @brief Returns the current durable end offset of the WAL file.
+   * @brief Returns the current flushed end offset of the WAL file.
    *
    * The stream is flushed before reporting the offset so snapshots can record a
    * byte position that includes all WAL records written so far.
@@ -171,6 +202,30 @@ class WriteAheadLog {
   std::string path_;
   /** @brief Append stream kept open for write path operations. */
   std::ofstream output_;
+  DurabilityPolicy policy_;
+  std::size_t max_batch_;
+  std::uint32_t max_delay_us_;
+  int sync_fd_ = -1;
+  mutable std::mutex io_mutex_;
+  WalStats stats_;
+  struct Pending {
+    std::string frame;
+    std::mutex mutex;
+    std::condition_variable done;
+    bool complete = false;
+    std::exception_ptr error;
+  };
+  std::mutex queue_mutex_;
+  std::condition_variable queue_ready_;
+  std::deque<std::shared_ptr<Pending>> queue_;
+  std::thread writer_;
+  bool stopping_ = false;
+  std::exception_ptr failure_;
+
+  void AppendFrame(std::string frame);
+  void WriteFrameLocked(const std::string& frame);
+  void SyncLocked();
+  void WriterLoop();
 };
 
 }  // namespace persistence

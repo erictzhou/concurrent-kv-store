@@ -22,8 +22,8 @@ int main(int argc, char* argv[]) {
               << '\n';
     std::cout << "Concurrency: " << kv::common::kConcurrencyModel << '\n';
 
-    // Wire persistence into the store before replay so subsequent mutations are
-    // durably logged.
+    // Wire buffered WAL persistence into the store before replay. Buffered
+    // acknowledgements do not guarantee stable-storage persistence.
     kv::persistence::WriteAheadLog wal;
     kv::persistence::Snapshot snapshot;
     kv::store::KVStore store(&wal, &snapshot);

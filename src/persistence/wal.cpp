@@ -2,10 +2,19 @@
 #include "persistence/wal.h"
 
 #include <cstdint>
+#include <chrono>
+#include <cerrno>
 #include <filesystem>
 #include <limits>
+#include <fcntl.h>
 #include <stdexcept>
+#include <system_error>
+#include <unistd.h>
 #include <utility>
+#ifdef __linux__
+#include <pthread.h>
+#include <sched.h>
+#endif
 
 namespace kv {
 namespace persistence {
@@ -20,6 +29,25 @@ using OpType = std::uint8_t;
 // Bound individual records so corrupt lengths cannot force unbounded memory
 // allocation during replay.
 constexpr std::size_t kMaxRecordLength = 64U * 1024U * 1024U;
+
+void sync_parent_directory(const std::string& path) {
+  const auto parent = std::filesystem::path(path).parent_path();
+  const std::string directory = parent.empty() ? "." : parent.string();
+#ifdef O_DIRECTORY
+  const int fd = ::open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+#else
+  const int fd = ::open(directory.c_str(), O_RDONLY | O_CLOEXEC);
+#endif
+  if (fd < 0) {
+    throw std::system_error(errno, std::generic_category(), "open WAL directory");
+  }
+  const int result = ::fsync(fd);
+  const int error = errno;
+  ::close(fd);
+  if (result < 0) {
+    throw std::system_error(error, std::generic_category(), "sync WAL directory");
+  }
+}
 
 enum class WalOp : OpType {
   Set = 1,
@@ -161,12 +189,180 @@ void apply_record(const ParsedRecord& record,
 
 }  // namespace
 
-WriteAheadLog::WriteAheadLog(std::string path)
+WriteAheadLog::WriteAheadLog(std::string path, DurabilityPolicy policy,
+                             std::size_t max_batch, std::uint32_t max_delay_us)
     : path_(std::move(path)),
-      output_(path_, std::ios::binary | std::ios::app) {
+      output_(path_, std::ios::binary | std::ios::app),
+      policy_(policy), max_batch_(max_batch), max_delay_us_(max_delay_us) {
   if (!output_.is_open()) {
     throw std::runtime_error("failed to open WAL file: " + path_);
   }
+  if (max_batch_ == 0 || max_batch_ > 4096) {
+    throw std::invalid_argument("WAL max_batch must be in [1, 4096]");
+  }
+  stats_.batch_histogram.resize(max_batch_ + 1);
+  if (policy_ != DurabilityPolicy::Buffered) {
+    sync_fd_ = ::open(path_.c_str(), O_RDWR | O_CLOEXEC);
+    if (sync_fd_ < 0) {
+      throw std::system_error(errno, std::generic_category(), "open WAL sync fd");
+    }
+    try {
+      sync_parent_directory(path_);
+    } catch (...) {
+      ::close(sync_fd_);
+      sync_fd_ = -1;
+      throw;
+    }
+  }
+  if (policy_ == DurabilityPolicy::GroupCommit) {
+    writer_ = std::thread(&WriteAheadLog::WriterLoop, this);
+  }
+}
+
+WriteAheadLog::~WriteAheadLog() {
+  if (writer_.joinable()) {
+    {
+      std::lock_guard lock(queue_mutex_);
+      stopping_ = true;
+    }
+    queue_ready_.notify_one();
+    writer_.join();
+  }
+  if (sync_fd_ >= 0) ::close(sync_fd_);
+}
+
+void WriteAheadLog::SyncLocked() {
+  if (sync_fd_ < 0) return;
+  int result;
+  do {
+#ifdef __linux__
+    result = ::fdatasync(sync_fd_);
+#else
+    result = ::fsync(sync_fd_);
+#endif
+  } while (result < 0 && errno == EINTR);
+  if (result < 0) {
+    throw std::system_error(errno, std::generic_category(), "fdatasync WAL");
+  }
+  ++stats_.sync_calls;
+}
+
+void WriteAheadLog::WriteFrameLocked(const std::string& frame) {
+  output_.write(frame.data(), static_cast<std::streamsize>(frame.size()));
+  output_.flush();
+  if (!output_) throw std::runtime_error("failed to write WAL frame");
+  ++stats_.records;
+}
+
+void WriteAheadLog::AppendFrame(std::string frame) {
+  if (policy_ != DurabilityPolicy::GroupCommit) {
+    std::lock_guard lock(io_mutex_);
+    if (failure_) std::rethrow_exception(failure_);
+    try {
+      WriteFrameLocked(frame);
+      if (policy_ == DurabilityPolicy::Sync) {
+        SyncLocked();
+        ++stats_.batch_histogram[1];
+      }
+    } catch (...) {
+      failure_ = std::current_exception();
+      throw;
+    }
+    return;
+  }
+
+  auto pending = std::make_shared<Pending>();
+  pending->frame = std::move(frame);
+  {
+    std::lock_guard lock(queue_mutex_);
+    if (failure_) std::rethrow_exception(failure_);
+    queue_.push_back(pending);
+  }
+  queue_ready_.notify_one();
+  std::unique_lock lock(pending->mutex);
+  pending->done.wait(lock, [&] { return pending->complete; });
+  if (pending->error) std::rethrow_exception(pending->error);
+}
+
+void WriteAheadLog::WriterLoop() {
+  while (true) {
+    std::vector<std::shared_ptr<Pending>> batch;
+    {
+      std::unique_lock lock(queue_mutex_);
+      queue_ready_.wait(lock, [&] { return stopping_ || !queue_.empty(); });
+      if (queue_.empty() && stopping_) return;
+      if (queue_.size() < max_batch_ && max_delay_us_ > 0 && !stopping_) {
+        queue_ready_.wait_for(lock, std::chrono::microseconds(max_delay_us_),
+                              [&] { return stopping_ || queue_.size() >= max_batch_; });
+      }
+      while (!queue_.empty() && batch.size() < max_batch_) {
+        batch.push_back(std::move(queue_.front()));
+        queue_.pop_front();
+      }
+    }
+
+    std::exception_ptr error;
+    try {
+      std::lock_guard lock(io_mutex_);
+      std::size_t bytes = 0;
+      for (const auto& request : batch) bytes += request->frame.size();
+      std::string frames;
+      frames.reserve(bytes);
+      for (const auto& request : batch) frames.append(request->frame);
+      output_.write(frames.data(), static_cast<std::streamsize>(frames.size()));
+      output_.flush();
+      if (!output_) throw std::runtime_error("failed to write WAL batch");
+      stats_.records += batch.size();
+      SyncLocked();
+      ++stats_.batch_histogram[batch.size()];
+    } catch (...) {
+      error = std::current_exception();
+      {
+        std::lock_guard lock(queue_mutex_);
+        failure_ = error;
+        while (!queue_.empty()) {
+          batch.push_back(std::move(queue_.front()));
+          queue_.pop_front();
+        }
+      }
+    }
+    for (const auto& request : batch) {
+      {
+        std::lock_guard lock(request->mutex);
+        request->error = error;
+        request->complete = true;
+      }
+      request->done.notify_one();
+    }
+    if (error) return;
+  }
+}
+
+WalStats WriteAheadLog::GetStats() const {
+  std::lock_guard lock(io_mutex_);
+  return stats_;
+}
+
+void WriteAheadLog::ResetStats() {
+  std::lock_guard lock(io_mutex_);
+  stats_ = {};
+  stats_.batch_histogram.resize(max_batch_ + 1);
+}
+
+void WriteAheadLog::PinWriterToCpu(int cpu) {
+  if (policy_ != DurabilityPolicy::GroupCommit) return;
+#ifdef __linux__
+  cpu_set_t set;
+  CPU_ZERO(&set);
+  CPU_SET(cpu, &set);
+  const int error = pthread_setaffinity_np(writer_.native_handle(), sizeof(set), &set);
+  if (error != 0) {
+    throw std::system_error(error, std::generic_category(), "pin WAL writer");
+  }
+#else
+  (void)cpu;
+  throw std::runtime_error("WAL writer affinity requires Linux");
+#endif
 }
 
 void WriteAheadLog::AppendSet(const std::string& key, const std::string& value) {
@@ -187,14 +383,11 @@ void WriteAheadLog::AppendSet(const std::string& key, const std::string& value) 
   payload.append(value);
   const ChecksumType checksum = crc32(payload);
 
-  binary_io::WritePrimitive(output_, record_length, "WAL primitive");
-  binary_io::WritePrimitive(output_, checksum, "WAL primitive");
-  binary_io::WriteBytes(output_, payload, "WAL bytes");
-
-  output_.flush();
-  if (!output_) {
-    throw std::runtime_error("failed to write WAL SET record");
-  }
+  std::string frame;
+  append_primitive(frame, record_length);
+  append_primitive(frame, checksum);
+  frame.append(payload);
+  AppendFrame(std::move(frame));
 }
 
 void WriteAheadLog::AppendDelete(const std::string& key) {
@@ -211,17 +404,15 @@ void WriteAheadLog::AppendDelete(const std::string& key) {
   payload.append(key);
   const ChecksumType checksum = crc32(payload);
 
-  binary_io::WritePrimitive(output_, record_length, "WAL primitive");
-  binary_io::WritePrimitive(output_, checksum, "WAL primitive");
-  binary_io::WriteBytes(output_, payload, "WAL bytes");
-
-  output_.flush();
-  if (!output_) {
-    throw std::runtime_error("failed to write WAL DELETE record");
-  }
+  std::string frame;
+  append_primitive(frame, record_length);
+  append_primitive(frame, checksum);
+  frame.append(payload);
+  AppendFrame(std::move(frame));
 }
 
 std::uint64_t WriteAheadLog::CurrentOffset() {
+  std::lock_guard lock(io_mutex_);
   output_.flush();
   if (!output_) {
     throw std::runtime_error("failed to flush WAL before reading offset");
@@ -241,6 +432,7 @@ std::uint64_t WriteAheadLog::CurrentOffset() {
 }
 
 void WriteAheadLog::Clear() {
+  std::lock_guard lock(io_mutex_);
   // The WAL keeps an append stream open for normal writes. Close and reopen it
   // around truncation so future SET/DELETE records continue using the same WAL
   // object after persistence has been cleared.
@@ -263,6 +455,7 @@ void WriteAheadLog::Clear() {
   if (!output_.is_open()) {
     throw std::runtime_error("failed to reopen WAL file: " + path_);
   }
+  if (policy_ != DurabilityPolicy::Buffered) SyncLocked();
 }
 
 void WriteAheadLog::Rotate() {
@@ -270,6 +463,7 @@ void WriteAheadLog::Rotate() {
 }
 
 void WriteAheadLog::TruncateTo(std::uint64_t offset) {
+  std::lock_guard lock(io_mutex_);
   output_.close();
   output_.clear();
 
@@ -294,6 +488,7 @@ void WriteAheadLog::TruncateTo(std::uint64_t offset) {
   if (!output_.is_open()) {
     throw std::runtime_error("failed to reopen WAL file: " + path_);
   }
+  if (policy_ != DurabilityPolicy::Buffered) SyncLocked();
 }
 
 std::size_t WriteAheadLog::Replay(

@@ -1,0 +1,46 @@
+{
+  "date_utc": "2026-09-17T23:13:28Z",
+  "hostname": "smoketest-System-Product-Name",
+  "uname": "Linux smoketest-System-Product-Name 7.0.0-31-generic #31-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 04:26:38 UTC 2026 x86_64",
+  "physical_cpus": [
+    0,
+    6,
+    1,
+    7,
+    2,
+    8,
+    3,
+    9,
+    4,
+    10,
+    5,
+    11
+  ],
+  "smt_siblings": [
+    12,
+    18,
+    13,
+    19,
+    14,
+    20,
+    15,
+    21,
+    16,
+    22,
+    17,
+    23
+  ],
+  "N_physical_cores": 12,
+  "thread_counts": [
+    1,
+    2,
+    4,
+    8,
+    12
+  ],
+  "duration_ms": 500,
+  "repetitions": 3,
+  "scope": "baseline",
+  "zipf_s": 0.99,
+  "binary_sha256": "9317fd7fc8f6465d4b6952242ea5bba888be2395db7a518cd5a907533b792a5d"
+}

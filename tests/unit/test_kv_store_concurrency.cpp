@@ -16,6 +16,41 @@
 
 namespace {
 
+TEST(KVStoreCheckpointTest, AutomaticCheckpointCapturesOffsetAndReplaysLaterWrites) {
+  kv::tests::TempDir temp_dir;
+  const auto wal_path = temp_dir.FilePath("automatic.wal");
+  const auto snapshot_path = temp_dir.FilePath("automatic.snapshot");
+  {
+    kv::persistence::WriteAheadLog wal(wal_path);
+    kv::persistence::Snapshot snapshot(snapshot_path);
+    kv::store::KVStore store(&wal, &snapshot);
+    for (int i = 0; i < 1200; ++i) {
+      store.Set("key-" + std::to_string(i), "value-" + std::to_string(i));
+    }
+    store.WaitForCheckpoints();
+  }
+  kv::persistence::WriteAheadLog wal(wal_path);
+  kv::persistence::Snapshot snapshot(snapshot_path);
+  kv::store::KVStore recovered;
+  const auto loaded = recovered.LoadSnapshot(snapshot);
+  ASSERT_TRUE(loaded.loaded);
+  recovered.ReplayFromWal(wal, loaded.wal_offset);
+  EXPECT_EQ(1200U, recovered.Size());
+  EXPECT_EQ("value-1199", recovered.Get("key-1199").value());
+}
+
+TEST(KVStoreCheckpointTest, BackgroundFailureIsReported) {
+  kv::tests::TempDir temp_dir;
+  kv::persistence::Snapshot snapshot(temp_dir.FilePath("missing/checkpoint.snapshot"));
+  kv::store::KVStore store(nullptr, &snapshot);
+  for (int i = 0; i < 1000; ++i) {
+    store.Set("key-" + std::to_string(i), "value");
+  }
+  EXPECT_THROW(store.WaitForCheckpoints(), std::runtime_error);
+  EXPECT_THROW(store.Set("after-failure", "value"), std::runtime_error);
+  EXPECT_FALSE(store.Contains("after-failure"));
+}
+
 using kv::persistence::Snapshot;
 using kv::persistence::SnapshotLoadResult;
 using kv::persistence::WriteAheadLog;

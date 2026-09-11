@@ -42,10 +42,10 @@ TEST(CliServerTest, InfoPrintsVersionEntriesConcurrencyAndDurability) {
   server.Run(input, output);
 
   const std::string text = output.str();
-  EXPECT_NE(std::string::npos, text.find("Concurrent KV Store v0.5.0"));
+  EXPECT_NE(std::string::npos, text.find("Concurrent KV Store v0.6.0"));
   EXPECT_NE(std::string::npos, text.find("entries: 2"));
-  EXPECT_NE(std::string::npos, text.find("concurrency: coarse shared_mutex"));
-  EXPECT_NE(std::string::npos, text.find("durability: WAL appends"));
+  EXPECT_NE(std::string::npos, text.find("concurrency: 64 shards"));
+  EXPECT_NE(std::string::npos, text.find("durability: default WAL is buffered"));
 }
 
 TEST(CliServerTest, HelpIncludesCurrentConcurrencyCommands) {
@@ -58,9 +58,9 @@ TEST(CliServerTest, HelpIncludesCurrentConcurrencyCommands) {
   server.Run(input, output);
 
   const std::string text = output.str();
-  EXPECT_NE(std::string::npos, text.find("Concurrent KV Store v0.5.0"));
+  EXPECT_NE(std::string::npos, text.find("Concurrent KV Store v0.6.0"));
   EXPECT_NE(std::string::npos, text.find("INFO|VERSION|STATUS"));
-  EXPECT_NE(std::string::npos, text.find("Concurrency: coarse shared_mutex"));
+  EXPECT_NE(std::string::npos, text.find("Concurrency: 64 shards"));
   EXPECT_NE(std::string::npos, text.find("COMPACT|SNAPSHOT"));
   EXPECT_NE(std::string::npos, text.find("CLEAR PERSISTENCE"));
 }

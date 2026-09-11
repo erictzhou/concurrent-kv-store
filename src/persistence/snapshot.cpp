@@ -5,11 +5,15 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstdint>
+#include <filesystem>
+#include <fcntl.h>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
+#include <system_error>
+#include <unistd.h>
 
 namespace kv {
 namespace persistence {
@@ -22,6 +26,34 @@ using SizeType = binary_io::SizeType;
 constexpr std::uint32_t kSnapshotMagic = 0x3153564BU;  // "KVS1"
 constexpr std::uint32_t kSnapshotVersion = 1;
 constexpr std::size_t kMaxSnapshotFieldLength = 64U * 1024U * 1024U;
+
+void sync_file(const std::string& path) {
+  const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+  if (fd < 0) throw std::system_error(errno, std::generic_category(), "open snapshot for sync");
+#ifdef __linux__
+  const int result = ::fdatasync(fd);
+#else
+  const int result = ::fsync(fd);
+#endif
+  const int error = errno;
+  ::close(fd);
+  if (result < 0) throw std::system_error(error, std::generic_category(), "sync snapshot");
+}
+
+void sync_parent_directory(const std::string& path) {
+  const auto parent = std::filesystem::path(path).parent_path();
+  const std::string directory = parent.empty() ? "." : parent.string();
+#ifdef O_DIRECTORY
+  const int fd = ::open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+#else
+  const int fd = ::open(directory.c_str(), O_RDONLY | O_CLOEXEC);
+#endif
+  if (fd < 0) throw std::system_error(errno, std::generic_category(), "open snapshot directory");
+  const int result = ::fsync(fd);
+  const int error = errno;
+  ::close(fd);
+  if (result < 0) throw std::system_error(error, std::generic_category(), "sync snapshot directory");
+}
 
 void remove_if_exists(const std::string& path, const char* description) {
   errno = 0;
@@ -118,9 +150,12 @@ void Snapshot::Save(
     }
   }
 
+  sync_file(temp_path);
+
   if (std::rename(temp_path.c_str(), path_.c_str()) != 0) {
     throw std::runtime_error("failed to replace snapshot file: " + path_);
   }
+  sync_parent_directory(path_);
 }
 
 void Snapshot::SaveVerified(
@@ -148,6 +183,7 @@ void Snapshot::Clear() const {
   // should also be cleared.
   remove_if_exists(path_, "snapshot file");
   remove_if_exists(path_ + ".tmp", "temp snapshot file");
+  sync_parent_directory(path_);
 }
 
 SnapshotLoadResult Snapshot::Load(

@@ -109,8 +109,8 @@ void CliServer::PrintInfo(std::ostream& output) const {
   output << "Concurrent KV Store v" << common::kProjectVersion << '\n';
   output << "entries: " << store_.Size() << '\n';
   output << "concurrency: " << common::kConcurrencyModel << '\n';
-  output << "durability: WAL appends are serialized before memory mutation; "
-            "snapshot, compaction, and recovery are exclusive\n";
+  output << "durability: default WAL is buffered (not crash-durable); "
+            "Sync and GroupCommit require fdatasync before acknowledgement\n";
 }
 
 }  // namespace server

@@ -3,8 +3,11 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <barrier>
 #include <string>
+#include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include "helpers/file_utils.h"
 #include "helpers/temp_dir.h"
@@ -12,6 +15,7 @@
 namespace {
 
 using kv::persistence::WalReplayStatus;
+using kv::persistence::DurabilityPolicy;
 using kv::persistence::WriteAheadLog;
 using kv::tests::AppendBinaryFile;
 using kv::tests::AppendPrimitive;
@@ -93,6 +97,42 @@ class WalTest : public ::testing::Test {
   TempDir temp_dir_;
   std::string wal_path_;
 };
+
+TEST_F(WalTest, SyncPolicySynchronizesEachAcknowledgedMutation) {
+  WriteAheadLog wal(wal_path_, DurabilityPolicy::Sync);
+  wal.AppendSet("a", "1");
+  wal.AppendSet("b", "2");
+  wal.AppendDelete("a");
+  const auto stats = wal.GetStats();
+  EXPECT_EQ(3U, stats.records);
+  EXPECT_EQ(3U, stats.sync_calls);
+  std::unordered_map<std::string, std::string> recovered;
+  EXPECT_EQ(3U, wal.Replay(recovered));
+  EXPECT_EQ("2", recovered.at("b"));
+  EXPECT_EQ(0U, recovered.count("a"));
+}
+
+TEST_F(WalTest, GroupCommitSharesSyncAndReplaysEveryAcknowledgedMutation) {
+  constexpr int kWriters = 8;
+  WriteAheadLog wal(wal_path_, DurabilityPolicy::GroupCommit, kWriters, 5000);
+  std::barrier ready(kWriters);
+  std::vector<std::thread> writers;
+  for (int i = 0; i < kWriters; ++i) {
+    writers.emplace_back([&, i] {
+      ready.arrive_and_wait();
+      wal.AppendSet("key-" + std::to_string(i), "value-" + std::to_string(i));
+    });
+  }
+  for (auto& writer : writers) writer.join();
+  const auto stats = wal.GetStats();
+  EXPECT_EQ(kWriters, stats.records);
+  EXPECT_LT(stats.sync_calls, kWriters);
+  std::unordered_map<std::string, std::string> recovered;
+  EXPECT_EQ(kWriters, wal.Replay(recovered));
+  for (int i = 0; i < kWriters; ++i) {
+    EXPECT_EQ("value-" + std::to_string(i), recovered.at("key-" + std::to_string(i)));
+  }
+}
 
 TEST_F(WalTest, ConstructorCreatesEmptyWalFile) {
   WriteAheadLog wal(wal_path_);

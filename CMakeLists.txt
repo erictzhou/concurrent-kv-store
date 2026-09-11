@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
     concurrent_kv_store
-    VERSION 0.5.0
+    VERSION 0.6.0
     DESCRIPTION "Modern C++ key-value store with WAL persistence and snapshot recovery"
     LANGUAGES CXX
 )
@@ -123,6 +123,16 @@ if(CONCURRENT_KV_STORE_BUILD_TESTS)
 endif()
 
 if(CONCURRENT_KV_STORE_BUILD_BENCHMARKS)
+    add_executable(kv_store_scaling_benchmark
+        benchmarks/scaling/kv_store_scaling.cpp
+    )
+    target_link_libraries(kv_store_scaling_benchmark PRIVATE kv_store_core)
+
+    add_executable(kv_store_checkpoint_benchmark
+        benchmarks/scaling/checkpoint_cliff.cpp
+    )
+    target_link_libraries(kv_store_checkpoint_benchmark PRIVATE kv_store_core)
+
     FetchContent_Declare(
         googlebenchmark
         URL https://github.com/google/benchmark/archive/refs/tags/v1.8.3.zip
