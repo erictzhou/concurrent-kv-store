@@ -29,6 +29,7 @@ using OpType = std::uint8_t;
 // Bound individual records so corrupt lengths cannot force unbounded memory
 // allocation during replay.
 constexpr std::size_t kMaxRecordLength = 64U * 1024U * 1024U;
+constexpr std::size_t kMaxBatchBytes = kMaxRecordLength + 8;
 
 void sync_parent_directory(const std::string& path) {
   const auto parent = std::filesystem::path(path).parent_path();
@@ -295,7 +296,13 @@ void WriteAheadLog::WriterLoop() {
         queue_ready_.wait_for(lock, std::chrono::microseconds(max_delay_us_),
                               [&] { return stopping_ || queue_.size() >= max_batch_; });
       }
+      std::size_t batch_bytes = 0;
       while (!queue_.empty() && batch.size() < max_batch_) {
+        const std::size_t next_bytes = queue_.front()->frame.size();
+        if (!batch.empty() && batch_bytes + next_bytes > kMaxBatchBytes) {
+          break;
+        }
+        batch_bytes += next_bytes;
         batch.push_back(std::move(queue_.front()));
         queue_.pop_front();
       }
