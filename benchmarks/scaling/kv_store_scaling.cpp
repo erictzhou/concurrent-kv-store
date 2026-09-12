@@ -39,7 +39,7 @@ struct Options {
   int duration_ms = 1000;
   int threads = 1;
   double zipf_s = 0.99;
-  int group_delay_us = 200;
+  int group_delay_us = 20;
   int group_max_batch = 32;
   std::vector<int> cpus{0};
   std::string wal_path;

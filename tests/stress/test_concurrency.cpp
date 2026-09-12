@@ -1,4 +1,5 @@
 #include "store/kv_store.h"
+#include "persistence/wal.h"
 
 #include <gtest/gtest.h>
 
@@ -8,6 +9,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include "helpers/temp_dir.h"
 
 namespace {
 
@@ -103,6 +106,49 @@ TEST(KVStoreConcurrencyStressTest,
                   store.Get(key).value())
             << key;
       }
+    }
+  }
+}
+
+TEST(KVStoreConcurrencyStressTest, GroupCommitHotKeyMatchesRecoveredOrder) {
+  constexpr int kThreads = 8;
+  constexpr int kRounds = 100;
+  kv::tests::TempDir temp_dir;
+  kv::persistence::WriteAheadLog wal(
+      temp_dir.FilePath("hot-group.wal"),
+      kv::persistence::DurabilityPolicy::GroupCommit, 32, 200);
+  KVStore store(&wal);
+  std::atomic<bool> start{false};
+  std::atomic<int> ready{0};
+  std::atomic<bool> success{true};
+  std::vector<std::thread> threads;
+  for (int thread_index = 0; thread_index < kThreads; ++thread_index) {
+    threads.emplace_back([&, thread_index] {
+      ready.fetch_add(1, std::memory_order_release);
+      WaitForStart(start);
+      try {
+        for (int round = 0; round < kRounds; ++round) {
+          store.Set("hot", StressValue(thread_index, 0, round));
+          store.Set(StressKey(thread_index, round % 8),
+                    StressValue(thread_index, round % 8, round));
+        }
+      } catch (...) {
+        success.store(false, std::memory_order_release);
+      }
+    });
+  }
+  WaitForReady(ready, kThreads);
+  start.store(true, std::memory_order_release);
+  for (auto& thread : threads) thread.join();
+  ASSERT_TRUE(success.load(std::memory_order_acquire));
+
+  KVStore recovered;
+  EXPECT_EQ(2U * kThreads * kRounds, recovered.ReplayFromWal(wal));
+  EXPECT_EQ(store.Get("hot"), recovered.Get("hot"));
+  for (int thread_index = 0; thread_index < kThreads; ++thread_index) {
+    for (int key_index = 0; key_index < 8; ++key_index) {
+      const auto key = StressKey(thread_index, key_index);
+      EXPECT_EQ(store.Get(key), recovered.Get(key));
     }
   }
 }

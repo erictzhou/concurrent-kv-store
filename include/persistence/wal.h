@@ -75,7 +75,7 @@ class WriteAheadLog {
   explicit WriteAheadLog(std::string path = "kv_store.wal",
                          DurabilityPolicy policy = DurabilityPolicy::Buffered,
                          std::size_t max_batch = 32,
-                         std::uint32_t max_delay_us = 200);
+                         std::uint32_t max_delay_us = 20);
   ~WriteAheadLog();
 
   WriteAheadLog(const WriteAheadLog&) = delete;
