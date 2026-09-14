@@ -246,7 +246,6 @@ std::size_t KVStore::Size() const {
   auto shard_locks = LockAllShardsShared();
   std::size_t size = 0;
   for (const auto& shard : shards_) {
-    std::shared_lock shard_lock(shard.mutex);
     size += shard.data.size();
   }
   return size;
