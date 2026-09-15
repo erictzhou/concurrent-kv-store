@@ -5,9 +5,12 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <array>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "helpers/file_utils.h"
 #include "helpers/temp_dir.h"
@@ -15,6 +18,7 @@
 namespace {
 
 using kv::persistence::Snapshot;
+using kv::persistence::SnapshotFaultPoint;
 using kv::persistence::SnapshotLoadResult;
 using kv::persistence::WriteAheadLog;
 using kv::store::KVStore;
@@ -43,11 +47,21 @@ std::uint32_t Crc32(const std::string& bytes) {
 }
 
 std::string FrameRecord(const std::string& payload) {
+  std::string record;
+  for (std::size_t i = 0; i < sizeof(std::uint64_t); ++i) {
+    record.push_back(static_cast<char>(std::uint64_t{4} >> (8 * i)));
+  }
+  record.append(payload);
   std::string bytes;
-  AppendPrimitive<std::uint32_t>(bytes,
-                                 static_cast<std::uint32_t>(payload.size()));
-  AppendPrimitive<std::uint32_t>(bytes, Crc32(payload));
-  bytes.append(payload);
+  const auto length = static_cast<std::uint32_t>(record.size());
+  const auto checksum = Crc32(record);
+  for (std::size_t i = 0; i < sizeof(length); ++i) {
+    bytes.push_back(static_cast<char>(length >> (8 * i)));
+  }
+  for (std::size_t i = 0; i < sizeof(checksum); ++i) {
+    bytes.push_back(static_cast<char>(checksum >> (8 * i)));
+  }
+  bytes.append(record);
   return bytes;
 }
 
@@ -438,6 +452,59 @@ TEST_F(RecoveryTest, FailedSnapshotWriteDoesNotRotateWal) {
   EXPECT_EQ("1", recovered.Get("a").value());
 }
 
+TEST_F(RecoveryTest, SnapshotPublicationFaultsLeaveWalRecoveryIntact) {
+  const std::array points{
+      SnapshotFaultPoint::AfterTempWrite,
+      SnapshotFaultPoint::AfterTempSync,
+      SnapshotFaultPoint::AfterRename,
+      SnapshotFaultPoint::AfterDirectorySync,
+  };
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    const auto wal_path =
+        temp_dir_.FilePath("publication-" + std::to_string(i) + ".wal");
+    const auto snapshot_path =
+        temp_dir_.FilePath("publication-" + std::to_string(i) + ".snapshot");
+    Snapshot(snapshot_path).Save({{"base", "old"}}, 0);
+    {
+      WriteAheadLog wal(wal_path, kv::persistence::DurabilityPolicy::Sync);
+      Snapshot faulting(snapshot_path, [point = points[i]](SnapshotFaultPoint hit) {
+        if (hit == point) throw std::runtime_error("injected snapshot fault");
+      });
+      KVStore store(&wal, &faulting);
+      store.Set("base", "new");
+      store.Set("tail", "value");
+      const auto wal_size = FileSize(wal_path);
+      EXPECT_THROW(store.CompactPersistence(), std::runtime_error);
+      EXPECT_EQ(wal_size, FileSize(wal_path));
+    }
+    const KVStore recovered = RecoverStore(wal_path, snapshot_path);
+    EXPECT_EQ("new", recovered.Get("base").value());
+    EXPECT_EQ("value", recovered.Get("tail").value());
+  }
+}
+
+TEST_F(RecoveryTest, FaultBeforeWalRotationKeepsVerifiedSnapshotAndWal) {
+  std::uintmax_t wal_size = 0;
+  {
+    WriteAheadLog wal(wal_path_, kv::persistence::DurabilityPolicy::Sync,
+                      32, 20, [](kv::persistence::WalFaultPoint point) {
+                        if (point == kv::persistence::WalFaultPoint::BeforeTruncate) {
+                          throw std::runtime_error("injected WAL rotation fault");
+                        }
+                      });
+    Snapshot snapshot(snapshot_path_);
+    KVStore store(&wal, &snapshot);
+    store.Set("base", "new");
+    store.Set("tail", "value");
+    wal_size = FileSize(wal_path_);
+    EXPECT_THROW(store.CompactPersistence(), std::runtime_error);
+    EXPECT_EQ(wal_size, FileSize(wal_path_));
+  }
+  const KVStore recovered = RecoverStore(wal_path_, snapshot_path_);
+  EXPECT_EQ("new", recovered.Get("base").value());
+  EXPECT_EQ("value", recovered.Get("tail").value());
+}
+
 TEST_F(RecoveryTest, CrashAfterSnapshotBeforeWalRotationStillRecovers) {
   {
     WriteAheadLog wal(wal_path_);
@@ -454,6 +521,53 @@ TEST_F(RecoveryTest, CrashAfterSnapshotBeforeWalRotationStillRecovers) {
   EXPECT_EQ(1U, recovered.Size());
   EXPECT_EQ("new", recovered.Get("a").value());
   EXPECT_GT(FileSize(wal_path_), 0U);
+}
+
+TEST_F(RecoveryTest, AbruptExitAfterSyncBeforeMemoryMutationReplaysWal) {
+  const pid_t child = ::fork();
+  ASSERT_GE(child, 0);
+  if (child == 0) {
+    try {
+      WriteAheadLog wal(wal_path_, kv::persistence::DurabilityPolicy::Sync);
+      wal.AppendSet("committed", "value");
+      // Model a process dying after the WAL sync but before updating its map
+      // or running destructors.
+      ::_exit(0);
+    } catch (...) {
+      ::_exit(2);
+    }
+  }
+  int status = 0;
+  ASSERT_EQ(child, ::waitpid(child, &status, 0));
+  ASSERT_TRUE(WIFEXITED(status));
+  ASSERT_EQ(0, WEXITSTATUS(status));
+
+  WriteAheadLog wal(wal_path_);
+  std::unordered_map<std::string, std::string> recovered;
+  const auto result = wal.ReplayDetailed(recovered);
+  EXPECT_EQ(kv::persistence::WalReplayStatus::CleanEof, result.status);
+  EXPECT_EQ(1U, result.last_sequence);
+  EXPECT_EQ("value", recovered.at("committed"));
+}
+
+TEST_F(RecoveryTest, AbandonedSnapshotTempDoesNotReplacePublishedSnapshot) {
+  Snapshot snapshot(snapshot_path_);
+  snapshot.Save({{"stable", "value"}}, 0);
+  const pid_t child = ::fork();
+  ASSERT_GE(child, 0);
+  if (child == 0) {
+    WriteBinaryFile(snapshot_path_ + ".tmp", "partial snapshot");
+    ::_exit(0);
+  }
+  int status = 0;
+  ASSERT_EQ(child, ::waitpid(child, &status, 0));
+  ASSERT_TRUE(WIFEXITED(status));
+  ASSERT_EQ(0, WEXITSTATUS(status));
+
+  std::unordered_map<std::string, std::string> recovered;
+  const auto result = snapshot.Load(recovered);
+  EXPECT_TRUE(result.loaded);
+  EXPECT_EQ("value", recovered.at("stable"));
 }
 
 TEST_F(RecoveryTest, MissingWalAfterValidCompactedSnapshotRecoversSnapshot) {

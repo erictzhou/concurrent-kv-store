@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <unordered_map>
 
@@ -21,6 +22,15 @@ struct SnapshotLoadResult {
   std::uint64_t wal_offset = 0;
 };
 
+enum class SnapshotFaultPoint {
+  AfterTempWrite,
+  AfterTempSync,
+  AfterRename,
+  AfterDirectorySync,
+};
+
+using SnapshotFaultHook = std::function<void(SnapshotFaultPoint)>;
+
 /**
  * @brief Point-in-time snapshot storage for the in-memory key-value map.
  *
@@ -35,7 +45,8 @@ class Snapshot {
    *
    * @param path Path to the snapshot file.
    */
-  explicit Snapshot(std::string path = "kv_store.snapshot");
+  explicit Snapshot(std::string path = "kv_store.snapshot",
+                    SnapshotFaultHook fault_hook = {});
 
   /**
    * @brief Writes the full contents of a store map to the snapshot file.
@@ -95,6 +106,7 @@ class Snapshot {
  private:
   /** @brief Filesystem path of the snapshot file. */
   std::string path_;
+  SnapshotFaultHook fault_hook_;
 };
 
 }  // namespace persistence

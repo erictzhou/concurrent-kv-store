@@ -120,7 +120,8 @@ bool read_entry(std::ifstream& input, std::string& key, std::string& value) {
 
 }  // namespace
 
-Snapshot::Snapshot(std::string path) : path_(std::move(path)) {}
+Snapshot::Snapshot(std::string path, SnapshotFaultHook fault_hook)
+    : path_(std::move(path)), fault_hook_(std::move(fault_hook)) {}
 
 void Snapshot::Save(
     const std::unordered_map<std::string, std::string>& store,
@@ -150,12 +151,16 @@ void Snapshot::Save(
     }
   }
 
+  if (fault_hook_) fault_hook_(SnapshotFaultPoint::AfterTempWrite);
   sync_file(temp_path);
+  if (fault_hook_) fault_hook_(SnapshotFaultPoint::AfterTempSync);
 
   if (std::rename(temp_path.c_str(), path_.c_str()) != 0) {
     throw std::runtime_error("failed to replace snapshot file: " + path_);
   }
+  if (fault_hook_) fault_hook_(SnapshotFaultPoint::AfterRename);
   sync_parent_directory(path_);
+  if (fault_hook_) fault_hook_(SnapshotFaultPoint::AfterDirectorySync);
 }
 
 void Snapshot::SaveVerified(

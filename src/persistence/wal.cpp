@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <chrono>
 #include <cerrno>
+#include <cstring>
 #include <filesystem>
 #include <limits>
 #include <fcntl.h>
@@ -30,6 +31,10 @@ using OpType = std::uint8_t;
 // allocation during replay.
 constexpr std::size_t kMaxRecordLength = 64U * 1024U * 1024U;
 constexpr std::size_t kMaxBatchBytes = kMaxRecordLength + 8;
+constexpr char kWalMagic[] = {'K', 'V', 'W', '3'};
+constexpr std::uint32_t kWalVersion = 3;
+constexpr std::uint32_t kEndianMarker = 0x01020304U;
+constexpr std::size_t kHeaderLength = 24;
 
 void sync_parent_directory(const std::string& path) {
   const auto parent = std::filesystem::path(path).parent_path();
@@ -67,6 +72,30 @@ void append_primitive(std::string& bytes, T value) {
   bytes.append(raw, sizeof(T));
 }
 
+void append_le32(std::string& bytes, std::uint32_t value) {
+  for (unsigned shift = 0; shift < 32; shift += 8) {
+    bytes.push_back(static_cast<char>(value >> shift));
+  }
+}
+
+void append_le64(std::string& bytes, std::uint64_t value) {
+  for (unsigned shift = 0; shift < 64; shift += 8) {
+    bytes.push_back(static_cast<char>(value >> shift));
+  }
+}
+
+template <typename T>
+bool consume_le(const std::string& bytes, std::size_t& offset, T& value) {
+  if (offset > bytes.size() || bytes.size() - offset < sizeof(T)) return false;
+  value = 0;
+  for (std::size_t i = 0; i < sizeof(T); ++i) {
+    value |= static_cast<T>(static_cast<unsigned char>(bytes[offset + i]))
+             << (8 * i);
+  }
+  offset += sizeof(T);
+  return true;
+}
+
 std::uint32_t crc32(const std::string& bytes) {
   std::uint32_t crc = 0xFFFFFFFFU;
   for (const unsigned char byte : bytes) {
@@ -77,6 +106,36 @@ std::uint32_t crc32(const std::string& bytes) {
     }
   }
   return ~crc;
+}
+
+std::string make_header(std::uint64_t generation) {
+  std::string header(kWalMagic, sizeof(kWalMagic));
+  append_le32(header, kWalVersion);
+  append_le32(header, kEndianMarker);
+  append_le64(header, generation);
+  append_le32(header, crc32(header));
+  return header;
+}
+
+bool parse_header(std::ifstream& input, std::uint64_t& generation) {
+  input.clear();
+  input.seekg(0, std::ios::beg);
+  std::string header(kHeaderLength, '\0');
+  input.read(header.data(), static_cast<std::streamsize>(header.size()));
+  if (!input || std::memcmp(header.data(), kWalMagic, sizeof(kWalMagic)) != 0) {
+    return false;
+  }
+  std::size_t offset = sizeof(kWalMagic);
+  std::uint32_t version = 0, marker = 0, checksum = 0;
+  if (!consume_le(header, offset, version) ||
+      !consume_le(header, offset, marker) ||
+      !consume_le(header, offset, generation) ||
+      !consume_le(header, offset, checksum)) {
+    return false;
+  }
+  return version == kWalVersion && marker == kEndianMarker &&
+         generation != 0 &&
+         checksum == crc32(header.substr(0, kHeaderLength - sizeof(checksum)));
 }
 
 LengthType checked_record_length(std::size_t record_length) {
@@ -93,12 +152,13 @@ bool read_exact(std::ifstream& input, char* data, std::size_t size) {
   return static_cast<bool>(input);
 }
 
-template <typename T>
-bool read_framing_primitive(std::ifstream& input,
-                            std::uint64_t& cursor,
-                            T& value,
-                            WalReplayResult& result) {
-  input.read(reinterpret_cast<char*>(&value), sizeof(value));
+bool read_framing_u32(std::ifstream& input,
+                      std::uint64_t& cursor,
+                      std::uint32_t& value,
+                      WalReplayResult& result,
+                      bool little_endian) {
+  char bytes[sizeof(value)]{};
+  input.read(bytes, sizeof(bytes));
   const std::streamsize bytes_read = input.gcount();
   if (bytes_read == 0 && input.eof()) {
     result.status = WalReplayStatus::CleanEof;
@@ -106,19 +166,34 @@ bool read_framing_primitive(std::ifstream& input,
     return false;
   }
 
-  if (bytes_read != static_cast<std::streamsize>(sizeof(value))) {
+  if (bytes_read != static_cast<std::streamsize>(sizeof(bytes))) {
     result.status = WalReplayStatus::PartialRecord;
     result.stop_offset = cursor;
     return false;
   }
 
-  cursor += sizeof(value);
+  if (little_endian) {
+    value = 0;
+    for (std::size_t i = 0; i < sizeof(bytes); ++i) {
+      value |= static_cast<std::uint32_t>(
+                   static_cast<unsigned char>(bytes[i])) << (8 * i);
+    }
+  } else {
+    std::memcpy(&value, bytes, sizeof(value));
+  }
+  cursor += sizeof(bytes);
   return true;
 }
 
 WalReplayStatus parse_record(const std::string& record,
-                             ParsedRecord& parsed) {
+                             ParsedRecord& parsed,
+                             bool portable,
+                             std::uint64_t& sequence) {
   std::size_t offset = 0;
+
+  if (portable && !consume_le(record, offset, sequence)) {
+    return WalReplayStatus::PartialPayload;
+  }
 
   // All record variants start with an opcode and a key.
 
@@ -135,7 +210,8 @@ WalReplayStatus parse_record(const std::string& record,
 
   // Key Size
   SizeType key_size = 0;
-  if (!binary_io::ConsumePrimitive(record, offset, key_size)) {
+  if (!(portable ? consume_le(record, offset, key_size)
+                 : binary_io::ConsumePrimitive(record, offset, key_size))) {
     return WalReplayStatus::PartialPayload;
   }
 
@@ -149,7 +225,8 @@ WalReplayStatus parse_record(const std::string& record,
     // SET records carry exactly one value after the key. Extra trailing bytes
     // make the record malformed.
     SizeType value_size = 0;
-    if (!binary_io::ConsumePrimitive(record, offset, value_size)) {
+    if (!(portable ? consume_le(record, offset, value_size)
+                   : binary_io::ConsumePrimitive(record, offset, value_size))) {
       return WalReplayStatus::PartialPayload;
     }
 
@@ -191,15 +268,52 @@ void apply_record(const ParsedRecord& record,
 }  // namespace
 
 WriteAheadLog::WriteAheadLog(std::string path, DurabilityPolicy policy,
-                             std::size_t max_batch, std::uint32_t max_delay_us)
+                             std::size_t max_batch, std::uint32_t max_delay_us,
+                             WalFaultHook fault_hook)
     : path_(std::move(path)),
       output_(path_, std::ios::binary | std::ios::app),
-      policy_(policy), max_batch_(max_batch), max_delay_us_(max_delay_us) {
+      policy_(policy), max_batch_(max_batch), max_delay_us_(max_delay_us),
+      fault_hook_(std::move(fault_hook)) {
   if (!output_.is_open()) {
     throw std::runtime_error("failed to open WAL file: " + path_);
   }
   if (max_batch_ == 0 || max_batch_ > 4096) {
     throw std::invalid_argument("WAL max_batch must be in [1, 4096]");
+  }
+  std::error_code size_error;
+  const auto file_size = std::filesystem::file_size(path_, size_error);
+  if (size_error) {
+    throw std::runtime_error("failed to inspect WAL file: " + path_);
+  }
+  if (file_size == 0) {
+    header_pending_ = true;
+  } else {
+    std::ifstream input(path_, std::ios::binary);
+    char prefix[sizeof(kWalMagic)]{};
+    input.read(prefix, sizeof(prefix));
+    const auto prefix_size = static_cast<std::size_t>(input.gcount());
+    const bool magic_prefix =
+        prefix_size != 0 &&
+        std::memcmp(prefix, kWalMagic, prefix_size) == 0;
+    if (magic_prefix) {
+      format_valid_ = prefix_size == sizeof(kWalMagic) &&
+                      parse_header(input, generation_);
+      if (format_valid_) {
+        std::unordered_map<std::string, std::string> ignored;
+        const auto replay = ReplayFromDetailed(0, ignored);
+        needs_recovery_ = replay.status != WalReplayStatus::CleanEof;
+        if (replay.last_sequence == std::numeric_limits<std::uint64_t>::max()) {
+          throw std::runtime_error("WAL sequence is exhausted");
+        }
+        next_sequence_ = replay.last_sequence + 1;
+      }
+    } else {
+      legacy_v2_ = true;
+      generation_ = 0;
+      std::unordered_map<std::string, std::string> ignored;
+      needs_recovery_ =
+          ReplayFromDetailed(0, ignored).status != WalReplayStatus::CleanEof;
+    }
   }
   stats_.batch_histogram.resize(max_batch_ + 1);
   if (policy_ != DurabilityPolicy::Buffered) {
@@ -248,21 +362,60 @@ void WriteAheadLog::SyncLocked() {
   ++stats_.sync_calls;
 }
 
-void WriteAheadLog::WriteFrameLocked(const std::string& frame) {
+void WriteAheadLog::EnsureHeaderLocked() {
+  if (legacy_v2_ || !header_pending_) return;
+  const std::string header = make_header(generation_);
+  output_.write(header.data(), static_cast<std::streamsize>(header.size()));
+  output_.flush();
+  if (!output_) throw std::runtime_error("failed to write WAL header");
+  header_pending_ = false;
+}
+
+std::string WriteAheadLog::EncodeFrameLocked(const std::string& payload) {
+  std::string record;
+  if (!legacy_v2_) {
+    if (next_sequence_ == std::numeric_limits<std::uint64_t>::max()) {
+      throw std::runtime_error("WAL sequence is exhausted");
+    }
+    append_le64(record, next_sequence_++);
+  }
+  record.append(payload);
+  const LengthType length = checked_record_length(record.size());
+  const ChecksumType checksum = crc32(record);
+  std::string frame;
+  if (legacy_v2_) {
+    append_primitive(frame, length);
+    append_primitive(frame, checksum);
+  } else {
+    append_le32(frame, length);
+    append_le32(frame, checksum);
+  }
+  frame.append(record);
+  return frame;
+}
+
+void WriteAheadLog::WriteFrameLocked(const std::string& payload) {
+  EnsureHeaderLocked();
+  const std::string frame = EncodeFrameLocked(payload);
   output_.write(frame.data(), static_cast<std::streamsize>(frame.size()));
   output_.flush();
   if (!output_) throw std::runtime_error("failed to write WAL frame");
+  if (fault_hook_) fault_hook_(WalFaultPoint::AfterWriteBeforeSync);
   ++stats_.records;
 }
 
-void WriteAheadLog::AppendFrame(std::string frame) {
+void WriteAheadLog::AppendPayload(std::string payload) {
   if (policy_ != DurabilityPolicy::GroupCommit) {
     std::lock_guard lock(io_mutex_);
     if (failure_) std::rethrow_exception(failure_);
+    if (!format_valid_ || needs_recovery_) {
+      throw std::runtime_error("WAL requires recovery before append");
+    }
     try {
-      WriteFrameLocked(frame);
+      WriteFrameLocked(payload);
       if (policy_ == DurabilityPolicy::Sync) {
         SyncLocked();
+        if (fault_hook_) fault_hook_(WalFaultPoint::AfterSync);
         ++stats_.batch_histogram[1];
       }
     } catch (...) {
@@ -273,10 +426,13 @@ void WriteAheadLog::AppendFrame(std::string frame) {
   }
 
   auto pending = std::make_shared<Pending>();
-  pending->frame = std::move(frame);
+  pending->payload = std::move(payload);
   {
     std::lock_guard lock(queue_mutex_);
     if (failure_) std::rethrow_exception(failure_);
+    if (!format_valid_ || needs_recovery_) {
+      throw std::runtime_error("WAL requires recovery before append");
+    }
     queue_.push_back(pending);
   }
   queue_ready_.notify_one();
@@ -298,7 +454,8 @@ void WriteAheadLog::WriterLoop() {
       }
       std::size_t batch_bytes = 0;
       while (!queue_.empty() && batch.size() < max_batch_) {
-        const std::size_t next_bytes = queue_.front()->frame.size();
+        const std::size_t next_bytes =
+            queue_.front()->payload.size() + (legacy_v2_ ? 8 : 16);
         if (!batch.empty() && batch_bytes + next_bytes > kMaxBatchBytes) {
           break;
         }
@@ -311,16 +468,23 @@ void WriteAheadLog::WriterLoop() {
     std::exception_ptr error;
     try {
       std::lock_guard lock(io_mutex_);
+      EnsureHeaderLocked();
       std::size_t bytes = 0;
-      for (const auto& request : batch) bytes += request->frame.size();
+      for (const auto& request : batch) {
+        bytes += request->payload.size() + (legacy_v2_ ? 8 : 16);
+      }
       std::string frames;
       frames.reserve(bytes);
-      for (const auto& request : batch) frames.append(request->frame);
+      for (const auto& request : batch) {
+        frames.append(EncodeFrameLocked(request->payload));
+      }
       output_.write(frames.data(), static_cast<std::streamsize>(frames.size()));
       output_.flush();
       if (!output_) throw std::runtime_error("failed to write WAL batch");
+      if (fault_hook_) fault_hook_(WalFaultPoint::AfterWriteBeforeSync);
       stats_.records += batch.size();
       SyncLocked();
+      if (fault_hook_) fault_hook_(WalFaultPoint::AfterSync);
       ++stats_.batch_histogram[batch.size()];
     } catch (...) {
       error = std::current_exception();
@@ -376,46 +540,33 @@ void WriteAheadLog::AppendSet(const std::string& key, const std::string& value) 
   const OpType op = static_cast<OpType>(WalOp::Set);
   const SizeType key_size = binary_io::CheckedSize(key, "WAL key");
   const SizeType value_size = binary_io::CheckedSize(value, "WAL value");
-  // Length covers the payload after the length field itself:
-  // [op][key_size][key][value_size][value].
-  const LengthType record_length =
-      checked_record_length(sizeof(op) + sizeof(key_size) + key_size +
-                            sizeof(value_size) + value_size);
+  checked_record_length(sizeof(op) + sizeof(key_size) + key_size +
+                        sizeof(value_size) + value_size +
+                        (legacy_v2_ ? 0 : sizeof(std::uint64_t)));
 
   std::string payload;
   append_primitive(payload, op);
-  append_primitive(payload, key_size);
+  if (legacy_v2_) append_primitive(payload, key_size);
+  else append_le32(payload, key_size);
   payload.append(key);
-  append_primitive(payload, value_size);
+  if (legacy_v2_) append_primitive(payload, value_size);
+  else append_le32(payload, value_size);
   payload.append(value);
-  const ChecksumType checksum = crc32(payload);
-
-  std::string frame;
-  append_primitive(frame, record_length);
-  append_primitive(frame, checksum);
-  frame.append(payload);
-  AppendFrame(std::move(frame));
+  AppendPayload(std::move(payload));
 }
 
 void WriteAheadLog::AppendDelete(const std::string& key) {
   const OpType op = static_cast<OpType>(WalOp::Delete);
   const SizeType key_size = binary_io::CheckedSize(key, "WAL key");
-  // Length covers the payload after the length field itself:
-  // [op][key_size][key].
-  const LengthType record_length =
-      checked_record_length(sizeof(op) + sizeof(key_size) + key_size);
+  checked_record_length(sizeof(op) + sizeof(key_size) + key_size +
+                        (legacy_v2_ ? 0 : sizeof(std::uint64_t)));
 
   std::string payload;
   append_primitive(payload, op);
-  append_primitive(payload, key_size);
+  if (legacy_v2_) append_primitive(payload, key_size);
+  else append_le32(payload, key_size);
   payload.append(key);
-  const ChecksumType checksum = crc32(payload);
-
-  std::string frame;
-  append_primitive(frame, record_length);
-  append_primitive(frame, checksum);
-  frame.append(payload);
-  AppendFrame(std::move(frame));
+  AppendPayload(std::move(payload));
 }
 
 std::uint64_t WriteAheadLog::CurrentOffset() {
@@ -440,6 +591,10 @@ std::uint64_t WriteAheadLog::CurrentOffset() {
 
 void WriteAheadLog::Clear() {
   std::lock_guard lock(io_mutex_);
+  if (fault_hook_) fault_hook_(WalFaultPoint::BeforeTruncate);
+  if (generation_ == std::numeric_limits<std::uint64_t>::max()) {
+    throw std::runtime_error("WAL generation is exhausted");
+  }
   // The WAL keeps an append stream open for normal writes. Close and reopen it
   // around truncation so future SET/DELETE records continue using the same WAL
   // object after persistence has been cleared.
@@ -462,6 +617,12 @@ void WriteAheadLog::Clear() {
   if (!output_.is_open()) {
     throw std::runtime_error("failed to reopen WAL file: " + path_);
   }
+  ++generation_;
+  next_sequence_ = 1;
+  legacy_v2_ = false;
+  header_pending_ = true;
+  format_valid_ = true;
+  needs_recovery_ = false;
   if (policy_ != DurabilityPolicy::Buffered) SyncLocked();
 }
 
@@ -471,6 +632,11 @@ void WriteAheadLog::Rotate() {
 
 void WriteAheadLog::TruncateTo(std::uint64_t offset) {
   std::lock_guard lock(io_mutex_);
+  if (fault_hook_) fault_hook_(WalFaultPoint::BeforeTruncate);
+  if (!legacy_v2_ && offset == 0 &&
+      generation_ == std::numeric_limits<std::uint64_t>::max()) {
+    throw std::runtime_error("WAL generation is exhausted");
+  }
   output_.close();
   output_.clear();
 
@@ -495,6 +661,23 @@ void WriteAheadLog::TruncateTo(std::uint64_t offset) {
   if (!output_.is_open()) {
     throw std::runtime_error("failed to reopen WAL file: " + path_);
   }
+  if (!legacy_v2_) {
+    if (offset == 0) {
+      ++generation_;
+      next_sequence_ = 1;
+      header_pending_ = true;
+      format_valid_ = true;
+    } else {
+      std::unordered_map<std::string, std::string> ignored;
+      const auto replay = ReplayFromDetailed(0, ignored);
+      if (replay.status != WalReplayStatus::CleanEof ||
+          replay.last_sequence == std::numeric_limits<std::uint64_t>::max()) {
+        throw std::runtime_error("WAL truncation did not leave a valid prefix");
+      }
+      next_sequence_ = replay.last_sequence + 1;
+    }
+  }
+  needs_recovery_ = false;
   if (policy_ != DurabilityPolicy::Buffered) SyncLocked();
 }
 
@@ -532,6 +715,29 @@ WalReplayResult WriteAheadLog::ReplayFromDetailed(
     return result;
   }
 
+  char prefix[sizeof(kWalMagic)]{};
+  input.read(prefix, sizeof(prefix));
+  const auto prefix_size = static_cast<std::size_t>(input.gcount());
+  if (prefix_size == 0) return result;
+  const bool magic_prefix =
+      std::memcmp(prefix, kWalMagic, prefix_size) == 0;
+  const bool portable = magic_prefix;
+  if (portable) {
+    if (prefix_size != sizeof(kWalMagic) ||
+        !parse_header(input, result.generation) ||
+        (offset != 0 && offset < kHeaderLength)) {
+      result.status = WalReplayStatus::InvalidHeader;
+      result.stop_offset = 0;
+      return result;
+    }
+    if (offset == 0) {
+      offset = kHeaderLength;
+      result.last_good_offset = offset;
+      result.stop_offset = offset;
+    }
+  }
+
+  input.clear();
   input.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
   if (!input) {
     return result;
@@ -540,13 +746,12 @@ WalReplayResult WriteAheadLog::ReplayFromDetailed(
   std::uint64_t cursor = offset;
 
   while (true) {
-    // Each iteration validates one WAL v2 frame:
-    // [uint32 payload_length][uint32 crc32(payload)][payload].
+    // Each iteration validates one complete v2 or v3 frame.
     // A record mutates the store only after the full payload parses and its
     // checksum matches.
     const std::uint64_t record_start = cursor;
     LengthType record_length = 0;
-    if (!read_framing_primitive(input, cursor, record_length, result)) {
+    if (!read_framing_u32(input, cursor, record_length, result, portable)) {
       break;
     }
 
@@ -557,7 +762,7 @@ WalReplayResult WriteAheadLog::ReplayFromDetailed(
     }
 
     ChecksumType expected_checksum = 0;
-    if (!read_framing_primitive(input, cursor, expected_checksum, result)) {
+    if (!read_framing_u32(input, cursor, expected_checksum, result, portable)) {
       result.status = WalReplayStatus::PartialRecord;
       result.stop_offset = record_start;
       break;
@@ -578,15 +783,28 @@ WalReplayResult WriteAheadLog::ReplayFromDetailed(
     }
 
     ParsedRecord parsed;
-    const WalReplayStatus parse_status = parse_record(record, parsed);
+    std::uint64_t sequence = 0;
+    const WalReplayStatus parse_status =
+        parse_record(record, parsed, portable, sequence);
     if (parse_status != WalReplayStatus::CleanEof) {
       result.status = parse_status;
+      result.stop_offset = record_start;
+      break;
+    }
+    if (portable &&
+        (sequence == 0 ||
+         (result.applied_operations == 0 &&
+          offset == kHeaderLength && sequence != 1) ||
+         (result.applied_operations != 0 &&
+          sequence != result.last_sequence + 1))) {
+      result.status = WalReplayStatus::InvalidSequence;
       result.stop_offset = record_start;
       break;
     }
 
     apply_record(parsed, store);
     ++result.applied_operations;
+    if (portable) result.last_sequence = sequence;
     result.last_good_offset = cursor;
     result.stop_offset = cursor;
   }

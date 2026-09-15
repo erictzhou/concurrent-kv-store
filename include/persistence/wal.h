@@ -7,6 +7,7 @@
 #include <deque>
 #include <exception>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -19,6 +20,14 @@ namespace persistence {
 
 enum class DurabilityPolicy { Buffered, Sync, GroupCommit };
 
+enum class WalFaultPoint {
+  AfterWriteBeforeSync,
+  AfterSync,
+  BeforeTruncate,
+};
+
+using WalFaultHook = std::function<void(WalFaultPoint)>;
+
 struct WalStats {
   std::uint64_t records = 0;
   std::uint64_t sync_calls = 0;
@@ -27,8 +36,10 @@ struct WalStats {
 
 enum class WalReplayStatus {
   CleanEof,
+  InvalidHeader,
   PartialRecord,
   InvalidLength,
+  InvalidSequence,
   InvalidOpcode,
   ChecksumMismatch,
   PartialPayload,
@@ -41,25 +52,28 @@ struct WalReplayResult {
   std::uint64_t start_offset = 0;
   std::uint64_t last_good_offset = 0;
   std::uint64_t stop_offset = 0;
+  std::uint64_t generation = 0;
+  std::uint64_t last_sequence = 0;
   bool truncated = false;
 };
 
 /**
  * @brief Append-only write-ahead log for SET and DELETE operations.
  *
- * WAL format v2 is a breaking format change from the original length-only
- * frame. Each record is:
+ * New WAL files use portable little-endian v3. A 24-byte file header carries
+ * magic, version, byte-order marker, generation, and CRC32. Each frame is:
  *
- *   [uint32 payload_length][uint32 crc32(payload)][payload bytes]
+ *   [le32 record_length][le32 crc32(record)][le64 sequence][payload bytes]
  *
  * The payload is one of:
  *
  *   SET:    [uint8 op=1][uint32 key_size][key][uint32 value_size][value]
  *   DELETE: [uint8 op=2][uint32 key_size][key]
  *
- * The checksum covers only payload bytes. Replay validates the full frame and
- * checksum before applying any mutation. The v2 format uses native byte order;
- * cross-endian portability remains unsupported.
+ * Lengths in the payload are also little-endian. Sequence numbers start at
+ * one within each generation and follow the physical WAL write order. Replay
+ * validates the header, frame, checksum, and sequence before mutation. Legacy
+ * v2 logs remain readable and appendable until rotation upgrades them.
  *
  * Buffered acknowledges after userspace flush into the kernel page cache.
  * Sync calls fdatasync for each record; GroupCommit batches records and calls
@@ -75,7 +89,8 @@ class WriteAheadLog {
   explicit WriteAheadLog(std::string path = "kv_store.wal",
                          DurabilityPolicy policy = DurabilityPolicy::Buffered,
                          std::size_t max_batch = 32,
-                         std::uint32_t max_delay_us = 20);
+                         std::uint32_t max_delay_us = 20,
+                         WalFaultHook fault_hook = {});
   ~WriteAheadLog();
 
   WriteAheadLog(const WriteAheadLog&) = delete;
@@ -206,10 +221,17 @@ class WriteAheadLog {
   std::size_t max_batch_;
   std::uint32_t max_delay_us_;
   int sync_fd_ = -1;
+  bool legacy_v2_ = false;
+  bool header_pending_ = false;
+  bool format_valid_ = true;
+  bool needs_recovery_ = false;
+  std::uint64_t generation_ = 1;
+  std::uint64_t next_sequence_ = 1;
+  WalFaultHook fault_hook_;
   mutable std::mutex io_mutex_;
   WalStats stats_;
   struct Pending {
-    std::string frame;
+    std::string payload;
     std::mutex mutex;
     std::condition_variable done;
     bool complete = false;
@@ -222,8 +244,10 @@ class WriteAheadLog {
   bool stopping_ = false;
   std::exception_ptr failure_;
 
-  void AppendFrame(std::string frame);
-  void WriteFrameLocked(const std::string& frame);
+  void AppendPayload(std::string payload);
+  std::string EncodeFrameLocked(const std::string& payload);
+  void WriteFrameLocked(const std::string& payload);
+  void EnsureHeaderLocked();
   void SyncLocked();
   void WriterLoop();
 };
