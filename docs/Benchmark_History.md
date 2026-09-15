@@ -1,13 +1,43 @@
 # Benchmark History
 
-This file records curated benchmark runs worth preserving. Raw Google Benchmark
-JSON/text artifacts stay outside git; published rows here should be copied from
-intentional EC2 runs with environment metadata.
+This file records benchmark runs that are useful for comparison. The current
+5900X scaling results, including raw repetitions, are in
+[Benchmarks](Benchmarks.md). The older EC2 run below used another machine and
+an earlier implementation, so its throughput is not directly comparable.
 
-Current project status: `v0.5.0` has added coarse reader/writer synchronization
-and CLI status output. The only published EC2 run below predates that change,
-so it is a pre-concurrency baseline and should not be used to claim Phase 0.5
-performance.
+## 2026-09-17 — Physical-core and SMT scaling
+
+| Field | Value |
+| --- | --- |
+| Final engine commit | `596a72eb9c4df7ae037851acf30af471f48369c3` |
+| Coarse-lock source commit | `1f3ec22870fa1b9ea130659ca6df22552991a5e0` |
+| Machine | `agency-bench`, AMD Ryzen 9 5900X, 12 physical / 24 logical CPUs |
+| Build | GCC 13.3.0, Release, `-O3 -DNDEBUG` |
+| Placement | Pinned 1, 2, 4, 8, 12 physical workers; separate 24-worker SMT rows |
+| Repetitions | Three 500 ms runs per scaling point |
+| Filesystem | Home-directory ext4 on NVMe for all WAL measurements |
+| Validation | Release, ThreadSanitizer, and ASan/UBSan CTest each passed 90/90 |
+| Artifacts | [Final raw data](benchmark_artifacts/final_20260917/raw.csv), [median summary](benchmark_artifacts/final_20260917/summary.csv), [plot curves](benchmark_artifacts/final_20260917/plot_curves.csv), [matched coarse baseline](benchmark_artifacts/coarse_gcc13_20260917/summary.csv), [perf](benchmark_artifacts/perf_20260917/) |
+
+The final suite produced 537 raw runs and 179 median rows. Shard-isolated
+in-memory SET reached 125.77M ops/sec at 12 physical cores (10.23× and 85.3%
+efficiency), while a one-hot-shard write workload fell to 2.46M ops/sec.
+Uniform GET reached 88.88M ops/sec (6.19×), and uniform 70R/30W reached
+34.19M ops/sec (2.61×). Sync WAL stayed near 3.0k writes/sec. GroupCommit WAL
+reached 25.69k writes/sec at 12 writers, using 10.93 writes per sync on
+average, and 44.41k writes/sec with 24 SMT workers.
+
+The compiler-matched coarse-lock 12-worker baseline delivered 2.17M
+disjoint-key SET/s and 1.54M uniform 70R/30W ops/s; the sharded engine
+delivered 37.66M and 34.19M respectively. At one worker, uniform 70R/30W
+regressed by about 6% because sharding adds routing work. The original GCC 12
+coarse run is retained separately under
+[coarse_gcc12_20260917](benchmark_artifacts/coarse_gcc12_20260917/).
+
+Perf counters and syscall traces identify shard-lock contention in hot and
+mixed workloads and the fdatasync rate as the durable-write limit. The full
+methodology, read/write tail latencies, GroupCommit delay tradeoff, checkpoint
+comparison, and caveats are in [Benchmarks](Benchmarks.md).
 
 ## 2026-05-25T08:35:47Z - First EC2 Baseline
 
@@ -70,7 +100,7 @@ Next steps:
 - Add read-only and mixed read/write contention rows for the coarse
   reader/writer-lock implementation.
 
-## Entry Template
+## Historical EC2 entry template
 
 Copy this block when publishing a new EC2 benchmark run:
 
@@ -99,7 +129,7 @@ CLI status surface:
 Next steps:
 ```
 
-## Publication Checklist
+## Historical EC2 publication checklist
 
 1. Run correctness tests before the benchmark, then record the pass count.
 2. Run the EC2 workflow from the repository root:

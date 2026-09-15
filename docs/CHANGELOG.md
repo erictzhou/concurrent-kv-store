@@ -17,9 +17,15 @@ All notable changes to this project will be documented in this file.
   contention shapes, separate read/write latency percentiles, group batch
   metrics, and a checkpoint tail-latency benchmark.
 - Added Sync/GroupCommit recovery tests, a hot-key GroupCommit stress test,
-  and automatic checkpoint success/failure tests. The pre-tuning clean
-  Release build passed 89 CTest cases on `agency-bench`; local validation
-  reached 90 after the new stress test.
+  and automatic checkpoint success/failure tests. Final Release,
+  ThreadSanitizer, and ASan/UBSan builds each passed all 90 CTest cases on
+  `agency-bench`.
+- Bounded total GroupCommit batch bytes and removed a redundant recursive
+  shard-lock acquisition in `Size()`.
+- Published 537 raw runs on the 12-core 5900X, a compiler-matched coarse
+  baseline, physical-core and separate SMT curves, GroupCommit batch-delay
+  results, perf/syscall evidence, and a five-repetition checkpoint
+  tail-latency comparison.
 - Documented remaining WAL v2 portability, sequencing, and automatic cleanup
   limitations instead of treating buffered stream flush as stable durability.
 

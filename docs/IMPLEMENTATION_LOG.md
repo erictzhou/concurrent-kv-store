@@ -51,3 +51,49 @@
   1.41 ms at 200 µs. Changed the default to 20 µs and retained raw delay
   artifacts. Added a high-contention GroupCommit recovery stress test; local
   Release CTest passed 90/90 before the tuned publication rerun.
+- Bounded total GroupCommit batch bytes to one maximum-sized WAL frame. Before
+  this fix, 4,096 individually valid large requests could cause an oversized
+  aggregate allocation. Local Release CTest still passed 90/90.
+- Found `Size()` acquired all shard shared locks and then reacquired each
+  lock while counting. Removed the redundant second acquisition. Rebuilt and
+  retested the corrected commit `596a72e`: local and remote Release CTest
+  both passed 90/90.
+- The user required a persistent remote tmux session. Checked for
+  `kvstore`, found none, created it, and used windows within that session
+  for every subsequent remote build, benchmark, perf run, checkpoint
+  comparison, and sanitizer run. An in-progress pre-tmux sweep was stopped
+  and preserved as partial data. The `kvstore` session remains running.
+- On `agency-bench`, built the exact `596a72e` source in the Ubuntu 24.04
+  Docker image with GCC 13.3.0. The pinned final runner executed 537 raw
+  runs (three 500 ms repetitions at each point), including 1/2/4/8/12
+  physical-core sweeps and separate 24-thread SMT comparisons. Exported
+  179 summary rows and 28 plot-ready curve rows. Preserved the binary hash
+  and topology metadata with the artifacts.
+- Ran `scripts/profile_scaling.py` under tmux for 1, 6, and 12 workers:
+  `perf stat` captured cycles, instructions, cache references/misses,
+  branches, switches, and migrations; `strace -f -c` captured futex,
+  write, and fdatasync calls for Sync and GroupCommit. A separate
+  `perf record` confirmed read-lock cost and hot-shard scheduling activity.
+  Dedicated LLC-load counters were unavailable, so only generic cache
+  counters are reported.
+- Rebuilt the preserved coarse-lock source with the same GCC 13.3 toolchain
+  and benchmark harness, then collected 315 raw baseline runs. The earlier
+  GCC 12 baseline is retained separately and excluded from the matched
+  before/after comparison.
+- The corrected final run measured 125.77M shard-isolated SET/s at 12 cores
+  (10.23×), 88.88M uniform GET/s (6.19×), 34.19M uniform 70R/30W ops/s
+  (2.61×), 2.95k Sync SET/s, and 25.69k GroupCommit SET/s. Hot-shard SET
+  fell to 2.46M/s, with 491k context switches during its 12-worker perf run.
+  GroupCommit averaged 10.93 writes/sync at 12 writers; Sync stayed near
+  one write/sync and its uniform-write p99 grew to 110 ms.
+- The checkpoint comparison used five repetitions of 20,000 SETs over 1,000
+  preloaded keys. Median p99.9 dropped from 7,000 ns for the old foreground
+  snapshot design to 110 ns with background publication, although rare
+  maximum pauses remained around 0.2–0.3 ms.
+- Remote ASan/UBSan CTest passed 90/90. GCC ThreadSanitizer initially failed
+  at startup with an unexpected memory mapping, then its lock-order tracker
+  exceeded 64 simultaneously held shard locks. Running the container with
+  ASLR disabled and `TSAN_OPTIONS=detect_deadlocks=0:halt_on_error=1`
+  allowed data-race instrumentation to run; the full TSan CTest passed 90/90.
+  Local AppleClang TSan also failed to start a trivial standalone program, so
+  the successful remote run is the sanitizer evidence.

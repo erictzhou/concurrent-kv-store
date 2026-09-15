@@ -1,0 +1,244 @@
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- The C compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Could NOT find Python3 (missing: Python3_EXECUTABLE Interpreter)
+-- Configuring done (0.4s)
+-- Generating done (0.0s)
+-- Build files have been written to: /work/build-asan
+[  3%] Building CXX object _deps/googletest-build/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o
+[  6%] Building CXX object CMakeFiles/kv_store_core.dir/src/parser/cli_parser.cpp.o
+[  9%] Building CXX object CMakeFiles/kv_store_core.dir/src/common/string_utils.cpp.o
+[ 12%] Building CXX object CMakeFiles/kv_store_core.dir/src/persistence/wal.cpp.o
+[ 16%] Building CXX object CMakeFiles/kv_store_core.dir/src/store/kv_store.cpp.o
+[ 22%] Building CXX object CMakeFiles/kv_store_core.dir/src/server/cli_server.cpp.o
+[ 22%] Building CXX object CMakeFiles/kv_store_core.dir/src/persistence/snapshot.cpp.o
+[ 25%] Linking CXX static library libkv_store_core.a
+[ 25%] Built target kv_store_core
+[ 29%] Building CXX object CMakeFiles/kv_store.dir/src/main.cpp.o
+[ 32%] Linking CXX executable kv_store
+[ 32%] Built target kv_store
+[ 35%] Linking CXX static library ../../../lib/libgtest.a
+[ 35%] Built target gtest
+[ 38%] Building CXX object _deps/googletest-build/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o
+[ 41%] Building CXX object _deps/googletest-build/googletest/CMakeFiles/gtest_main.dir/src/gtest_main.cc.o
+[ 45%] Linking CXX static library ../../../lib/libgtest_main.a
+[ 45%] Built target gtest_main
+[ 48%] Building CXX object CMakeFiles/kv_store_stress_tests.dir/tests/stress/test_stress.cpp.o
+[ 54%] Building CXX object CMakeFiles/kv_store_stress_tests.dir/tests/stress/test_concurrency.cpp.o
+[ 54%] Building CXX object CMakeFiles/kv_store_stress_tests.dir/tests/helpers/file_utils.cpp.o
+[ 58%] Building CXX object CMakeFiles/kv_store_stress_tests.dir/tests/helpers/temp_dir.cpp.o
+[ 61%] Building CXX object CMakeFiles/kv_store_tests.dir/tests/unit/test_kv_store_concurrency.cpp.o
+[ 64%] Building CXX object CMakeFiles/kv_store_tests.dir/tests/unit/test_kv_store.cpp.o
+[ 67%] Building CXX object CMakeFiles/kv_store_tests.dir/tests/unit/test_cli.cpp.o
+[ 70%] Building CXX object CMakeFiles/kv_store_tests.dir/tests/unit/test_snapshot.cpp.o
+[ 74%] Building CXX object CMakeFiles/kv_store_tests.dir/tests/unit/test_wal.cpp.o
+[ 77%] Building CXX object CMakeFiles/kv_store_tests.dir/tests/integration/test_recovery.cpp.o
+[ 80%] Building CXX object CMakeFiles/kv_store_tests.dir/tests/helpers/file_utils.cpp.o
+[ 83%] Building CXX object CMakeFiles/kv_store_tests.dir/tests/helpers/temp_dir.cpp.o
+[ 87%] Linking CXX executable kv_store_stress_tests
+[ 87%] Built target kv_store_stress_tests
+[ 90%] Linking CXX static library ../../../lib/libgmock.a
+[ 90%] Built target gmock
+[ 93%] Building CXX object _deps/googletest-build/googlemock/CMakeFiles/gmock_main.dir/src/gmock_main.cc.o
+[ 96%] Linking CXX static library ../../../lib/libgmock_main.a
+[ 96%] Built target gmock_main
+[100%] Linking CXX executable kv_store_tests
+[100%] Built target kv_store_tests
+Internal ctest changing into directory: /work/build-asan
+Test project /work/build-asan
+      Start  1: KVStoreCoreTest.PutGetDeleteBasicCorrectness
+ 1/90 Test  #1: KVStoreCoreTest.PutGetDeleteBasicCorrectness .........................................   Passed    0.02 sec
+      Start  2: KVStoreCoreTest.OverwritesExistingKey
+ 2/90 Test  #2: KVStoreCoreTest.OverwritesExistingKey ................................................   Passed    0.02 sec
+      Start  3: KVStoreCoreTest.DeleteMissingKeyReturnsFalseAndLeavesStoreUnchanged
+ 3/90 Test  #3: KVStoreCoreTest.DeleteMissingKeyReturnsFalseAndLeavesStoreUnchanged ..................   Passed    0.02 sec
+      Start  4: KVStoreCoreTest.GetMissingKeyReturnsNullopt
+ 4/90 Test  #4: KVStoreCoreTest.GetMissingKeyReturnsNullopt ..........................................   Passed    0.02 sec
+      Start  5: KVStoreCoreTest.EmptyKeyAndEmptyValueAreSupported
+ 5/90 Test  #5: KVStoreCoreTest.EmptyKeyAndEmptyValueAreSupported ....................................   Passed    0.02 sec
+      Start  6: KVStoreCoreTest.RepeatedOverwriteKeepsOnlyLatestValue
+ 6/90 Test  #6: KVStoreCoreTest.RepeatedOverwriteKeepsOnlyLatestValue ................................   Passed    0.02 sec
+      Start  7: KVStoreCoreTest.ManyKeysCanBeInsertedAndRetrieved
+ 7/90 Test  #7: KVStoreCoreTest.ManyKeysCanBeInsertedAndRetrieved ....................................   Passed    0.02 sec
+      Start  8: KVStoreCoreTest.SupportsSpacesSpecialCharactersAndLargeValues
+ 8/90 Test  #8: KVStoreCoreTest.SupportsSpacesSpecialCharactersAndLargeValues ........................   Passed    0.02 sec
+      Start  9: KVStoreCoreTest.ClearRemovesAllInMemoryEntries
+ 9/90 Test  #9: KVStoreCoreTest.ClearRemovesAllInMemoryEntries .......................................   Passed    0.02 sec
+      Start 10: CliParserTest.ParsesInfoVersionAndStatusAliases
+10/90 Test #10: CliParserTest.ParsesInfoVersionAndStatusAliases ......................................   Passed    0.02 sec
+      Start 11: CliParserTest.RejectsInfoWithArguments
+11/90 Test #11: CliParserTest.RejectsInfoWithArguments ...............................................   Passed    0.02 sec
+      Start 12: CliServerTest.InfoPrintsVersionEntriesConcurrencyAndDurability
+12/90 Test #12: CliServerTest.InfoPrintsVersionEntriesConcurrencyAndDurability .......................   Passed    0.02 sec
+      Start 13: CliServerTest.HelpIncludesCurrentConcurrencyCommands
+13/90 Test #13: CliServerTest.HelpIncludesCurrentConcurrencyCommands .................................   Passed    0.02 sec
+      Start 14: KVStoreCheckpointTest.AutomaticCheckpointCapturesOffsetAndReplaysLaterWrites
+14/90 Test #14: KVStoreCheckpointTest.AutomaticCheckpointCapturesOffsetAndReplaysLaterWrites .........   Passed    0.04 sec
+      Start 15: KVStoreCheckpointTest.BackgroundFailureIsReported
+15/90 Test #15: KVStoreCheckpointTest.BackgroundFailureIsReported ....................................   Passed    0.03 sec
+      Start 16: KVStoreConcurrencyTest.ConcurrentReadersSeeStableValues
+16/90 Test #16: KVStoreConcurrencyTest.ConcurrentReadersSeeStableValues ..............................   Passed    0.06 sec
+      Start 17: KVStoreConcurrencyTest.ConcurrentWritesProduceCorrectFinalSize
+17/90 Test #17: KVStoreConcurrencyTest.ConcurrentWritesProduceCorrectFinalSize .......................   Passed    0.02 sec
+      Start 18: KVStoreConcurrencyTest.ConcurrentReadersAndWritersRemainConsistent
+18/90 Test #18: KVStoreConcurrencyTest.ConcurrentReadersAndWritersRemainConsistent ...................   Passed    0.04 sec
+      Start 19: KVStoreConcurrencyTest.ConcurrentDeletesAndWrites
+19/90 Test #19: KVStoreConcurrencyTest.ConcurrentDeletesAndWrites ....................................   Passed    0.02 sec
+      Start 20: KVStoreConcurrencyTest.ConcurrentWalBackedWritesRecoverCorrectly
+20/90 Test #20: KVStoreConcurrencyTest.ConcurrentWalBackedWritesRecoverCorrectly .....................   Passed    0.02 sec
+      Start 21: KVStoreConcurrencyTest.SnapshotDuringConcurrentReadsIsConsistent
+21/90 Test #21: KVStoreConcurrencyTest.SnapshotDuringConcurrentReadsIsConsistent .....................   Passed    0.04 sec
+      Start 22: KVStoreConcurrencyTest.CompactionAfterConcurrentWritesRecoversCorrectly
+22/90 Test #22: KVStoreConcurrencyTest.CompactionAfterConcurrentWritesRecoversCorrectly ..............   Passed    0.03 sec
+      Start 23: SnapshotTest.MissingSnapshotReturnsNotLoadedAndPreservesMap
+23/90 Test #23: SnapshotTest.MissingSnapshotReturnsNotLoadedAndPreservesMap ..........................   Passed    0.02 sec
+      Start 24: SnapshotTest.SaveAndLoadRoundTripEntriesAndWalOffset
+24/90 Test #24: SnapshotTest.SaveAndLoadRoundTripEntriesAndWalOffset .................................   Passed    0.02 sec
+      Start 25: SnapshotTest.SaveVerifiedWritesAndConfirmsSnapshotContents
+25/90 Test #25: SnapshotTest.SaveVerifiedWritesAndConfirmsSnapshotContents ...........................   Passed    0.02 sec
+      Start 26: SnapshotTest.EmptySnapshotFileIsTreatedAsNotLoaded
+26/90 Test #26: SnapshotTest.EmptySnapshotFileIsTreatedAsNotLoaded ...................................   Passed    0.02 sec
+      Start 27: SnapshotTest.LegacySnapshotLoadsWithZeroWalOffset
+27/90 Test #27: SnapshotTest.LegacySnapshotLoadsWithZeroWalOffset ....................................   Passed    0.02 sec
+      Start 28: SnapshotTest.EmptyKeyAndValueRoundTrip
+28/90 Test #28: SnapshotTest.EmptyKeyAndValueRoundTrip ...............................................   Passed    0.02 sec
+      Start 29: SnapshotTest.LargeValueRoundTrip
+29/90 Test #29: SnapshotTest.LargeValueRoundTrip .....................................................   Passed    0.02 sec
+      Start 30: SnapshotTest.SaveReplacesExistingSnapshot
+30/90 Test #30: SnapshotTest.SaveReplacesExistingSnapshot ............................................   Passed    0.02 sec
+      Start 31: SnapshotTest.ClearRemovesSnapshotAndTempFiles
+31/90 Test #31: SnapshotTest.ClearRemovesSnapshotAndTempFiles ........................................   Passed    0.02 sec
+      Start 32: SnapshotTest.ClearMissingFilesIsNoOp
+32/90 Test #32: SnapshotTest.ClearMissingFilesIsNoOp .................................................   Passed    0.02 sec
+      Start 33: SnapshotTest.TruncatedSnapshotThrowsAndPreservesExistingMap
+33/90 Test #33: SnapshotTest.TruncatedSnapshotThrowsAndPreservesExistingMap ..........................   Passed    0.02 sec
+      Start 34: SnapshotTest.CorruptedMetadataThrowsAndPreservesExistingMap
+34/90 Test #34: SnapshotTest.CorruptedMetadataThrowsAndPreservesExistingMap ..........................   Passed    0.02 sec
+      Start 35: SnapshotTest.OversizedKeyLengthThrowsSafelyAndPreservesExistingMap
+35/90 Test #35: SnapshotTest.OversizedKeyLengthThrowsSafelyAndPreservesExistingMap ...................   Passed    0.02 sec
+      Start 36: SnapshotTest.OversizedValueLengthThrowsSafelyAndPreservesExistingMap
+36/90 Test #36: SnapshotTest.OversizedValueLengthThrowsSafelyAndPreservesExistingMap .................   Passed    0.02 sec
+      Start 37: SnapshotTest.MissingSnapshotFileAfterClearLoadsAsNotLoaded
+37/90 Test #37: SnapshotTest.MissingSnapshotFileAfterClearLoadsAsNotLoaded ...........................   Passed    0.02 sec
+      Start 38: WalTest.SyncPolicySynchronizesEachAcknowledgedMutation
+38/90 Test #38: WalTest.SyncPolicySynchronizesEachAcknowledgedMutation ...............................   Passed    0.02 sec
+      Start 39: WalTest.GroupCommitSharesSyncAndReplaysEveryAcknowledgedMutation
+39/90 Test #39: WalTest.GroupCommitSharesSyncAndReplaysEveryAcknowledgedMutation .....................   Passed    0.02 sec
+      Start 40: WalTest.ConstructorCreatesEmptyWalFile
+40/90 Test #40: WalTest.ConstructorCreatesEmptyWalFile ...............................................   Passed    0.02 sec
+      Start 41: WalTest.MissingWalPathReplaysAsNoOp
+41/90 Test #41: WalTest.MissingWalPathReplaysAsNoOp ..................................................   Passed    0.02 sec
+      Start 42: WalTest.AppendingPutRecordRestoresStateAfterReplay
+42/90 Test #42: WalTest.AppendingPutRecordRestoresStateAfterReplay ...................................   Passed    0.02 sec
+      Start 43: WalTest.AppendingDeleteRecordRemovesKeyAfterReplay
+43/90 Test #43: WalTest.AppendingDeleteRecordRemovesKeyAfterReplay ...................................   Passed    0.02 sec
+      Start 44: WalTest.MultipleOperationsOnSameKeyReplayFinalState
+44/90 Test #44: WalTest.MultipleOperationsOnSameKeyReplayFinalState ..................................   Passed    0.02 sec
+      Start 45: WalTest.InterleavedOperationsAcrossKeysPreserveFinalState
+45/90 Test #45: WalTest.InterleavedOperationsAcrossKeysPreserveFinalState ............................   Passed    0.02 sec
+      Start 46: WalTest.ReplayHandlesManyRecords
+46/90 Test #46: WalTest.ReplayHandlesManyRecords .....................................................   Passed    0.05 sec
+      Start 47: WalTest.ZeroLengthKeyAndValueRoundTrip
+47/90 Test #47: WalTest.ZeroLengthKeyAndValueRoundTrip ...............................................   Passed    0.02 sec
+      Start 48: WalTest.LargeRecordReplay
+48/90 Test #48: WalTest.LargeRecordReplay ............................................................   Passed    0.03 sec
+      Start 49: WalTest.ValidWalReplayReportsCleanEofAndVerifiesChecksum
+49/90 Test #49: WalTest.ValidWalReplayReportsCleanEofAndVerifiesChecksum .............................   Passed    0.02 sec
+      Start 50: WalTest.ReplayFromOffsetStartsAtRecordBoundary
+50/90 Test #50: WalTest.ReplayFromOffsetStartsAtRecordBoundary .......................................   Passed    0.02 sec
+      Start 51: WalTest.BadOpcodeStopsReplayAndDoesNotApplyRecord
+51/90 Test #51: WalTest.BadOpcodeStopsReplayAndDoesNotApplyRecord ....................................   Passed    0.02 sec
+      Start 52: WalTest.PartialKeyPayloadStopsWithoutApplyingRecord
+52/90 Test #52: WalTest.PartialKeyPayloadStopsWithoutApplyingRecord ..................................   Passed    0.02 sec
+      Start 53: WalTest.PartialValuePayloadStopsWithoutApplyingRecord
+53/90 Test #53: WalTest.PartialValuePayloadStopsWithoutApplyingRecord ................................   Passed    0.02 sec
+      Start 54: WalTest.ExtraTrailingPayloadBytesStopsWithoutApplyingRecord
+54/90 Test #54: WalTest.ExtraTrailingPayloadBytesStopsWithoutApplyingRecord ..........................   Passed    0.02 sec
+      Start 55: WalTest.PartialTrailingLengthIsReportedSafely
+55/90 Test #55: WalTest.PartialTrailingLengthIsReportedSafely ........................................   Passed    0.02 sec
+      Start 56: WalTest.TornWriteInMiddleOfRecordStopsAfterValidRecords
+56/90 Test #56: WalTest.TornWriteInMiddleOfRecordStopsAfterValidRecords ..............................   Passed    0.02 sec
+      Start 57: WalTest.ImpossibleRecordLengthStopsWithoutAllocatingPayload
+57/90 Test #57: WalTest.ImpossibleRecordLengthStopsWithoutAllocatingPayload ..........................   Passed    0.02 sec
+      Start 58: WalTest.ChecksumMismatchStopsAndDoesNotApplyCorruptedRecord
+58/90 Test #58: WalTest.ChecksumMismatchStopsAndDoesNotApplyCorruptedRecord ..........................   Passed    0.02 sec
+      Start 59: WalTest.SafeTruncateAfterCorruptedTailKeepsOnlyValidatedPrefix
+59/90 Test #59: WalTest.SafeTruncateAfterCorruptedTailKeepsOnlyValidatedPrefix .......................   Passed    0.02 sec
+      Start 60: WalTest.TruncatedWalCanAppendAndReplayNewRecords
+60/90 Test #60: WalTest.TruncatedWalCanAppendAndReplayNewRecords .....................................   Passed    0.02 sec
+      Start 61: WalTest.OffsetPastEndReplaysNoRecords
+61/90 Test #61: WalTest.OffsetPastEndReplaysNoRecords ................................................   Passed    0.02 sec
+      Start 62: WalTest.ManuallyWrittenChecksumFrameReplays
+62/90 Test #62: WalTest.ManuallyWrittenChecksumFrameReplays ..........................................   Passed    0.02 sec
+      Start 63: RecoveryTest.WritesThenReconstructsStoreFromWal
+63/90 Test #63: RecoveryTest.WritesThenReconstructsStoreFromWal ......................................   Passed    0.02 sec
+      Start 64: RecoveryTest.PutDeleteOverwriteSequenceRecoversOnlyFinalState
+64/90 Test #64: RecoveryTest.PutDeleteOverwriteSequenceRecoversOnlyFinalState ........................   Passed    0.02 sec
+      Start 65: RecoveryTest.SnapshotOnlyRecoveryLoadsMaterializedState
+65/90 Test #65: RecoveryTest.SnapshotOnlyRecoveryLoadsMaterializedState ..............................   Passed    0.02 sec
+      Start 66: RecoveryTest.StoreCanSaveSnapshotThroughPublicApi
+66/90 Test #66: RecoveryTest.StoreCanSaveSnapshotThroughPublicApi ....................................   Passed    0.02 sec
+      Start 67: RecoveryTest.SnapshotPlusWalTailRecoversFromCoveredOffset
+67/90 Test #67: RecoveryTest.SnapshotPlusWalTailRecoversFromCoveredOffset ............................   Passed    0.02 sec
+      Start 68: RecoveryTest.SnapshotPlusWalTailStopsAtCorruptedChecksumTail
+68/90 Test #68: RecoveryTest.SnapshotPlusWalTailStopsAtCorruptedChecksumTail .........................   Passed    0.02 sec
+      Start 69: RecoveryTest.WalTailAfterSnapshotOverridesSnapshotValues
+69/90 Test #69: RecoveryTest.WalTailAfterSnapshotOverridesSnapshotValues .............................   Passed    0.02 sec
+      Start 70: RecoveryTest.MissingSnapshotFallsBackToFullWalReplay
+70/90 Test #70: RecoveryTest.MissingSnapshotFallsBackToFullWalReplay .................................   Passed    0.02 sec
+      Start 71: RecoveryTest.CorruptedSnapshotThrowsWithoutReplacingLiveStore
+71/90 Test #71: RecoveryTest.CorruptedSnapshotThrowsWithoutReplacingLiveStore ........................   Passed    0.02 sec
+      Start 72: RecoveryTest.StartupRecoveryIsIdempotentAcrossFreshStores
+72/90 Test #72: RecoveryTest.StartupRecoveryIsIdempotentAcrossFreshStores ............................   Passed    0.02 sec
+      Start 73: RecoveryTest.ClearPersistenceKeepsMemoryButResetsDurableState
+73/90 Test #73: RecoveryTest.ClearPersistenceKeepsMemoryButResetsDurableState ........................   Passed    0.02 sec
+      Start 74: RecoveryTest.CompactPersistenceRotatesWalAndRecoversSnapshotOnly
+74/90 Test #74: RecoveryTest.CompactPersistenceRotatesWalAndRecoversSnapshotOnly .....................   Passed    0.02 sec
+      Start 75: RecoveryTest.CompactedSnapshotPlusNewWalTailRecoversAllKeys
+75/90 Test #75: RecoveryTest.CompactedSnapshotPlusNewWalTailRecoversAllKeys ..........................   Passed    0.02 sec
+      Start 76: RecoveryTest.DeleteAfterCompactionRemovesSnapshotKeyOnRecovery
+76/90 Test #76: RecoveryTest.DeleteAfterCompactionRemovesSnapshotKeyOnRecovery .......................   Passed    0.02 sec
+      Start 77: RecoveryTest.OverwriteAfterCompactionWinsOnRecovery
+77/90 Test #77: RecoveryTest.OverwriteAfterCompactionWinsOnRecovery ..................................   Passed    0.02 sec
+      Start 78: RecoveryTest.FailedSnapshotWriteDoesNotRotateWal
+78/90 Test #78: RecoveryTest.FailedSnapshotWriteDoesNotRotateWal .....................................   Passed    0.02 sec
+      Start 79: RecoveryTest.CrashAfterSnapshotBeforeWalRotationStillRecovers
+79/90 Test #79: RecoveryTest.CrashAfterSnapshotBeforeWalRotationStillRecovers ........................   Passed    0.02 sec
+      Start 80: RecoveryTest.MissingWalAfterValidCompactedSnapshotRecoversSnapshot
+80/90 Test #80: RecoveryTest.MissingWalAfterValidCompactedSnapshotRecoversSnapshot ...................   Passed    0.02 sec
+      Start 81: RecoveryTest.CorruptedSnapshotDoesNotDestroyValidWalFallback
+81/90 Test #81: RecoveryTest.CorruptedSnapshotDoesNotDestroyValidWalFallback .........................   Passed    0.02 sec
+      Start 82: RecoveryTest.RepeatedCompactionIsIdempotentAndKeepsLatestState
+82/90 Test #82: RecoveryTest.RepeatedCompactionIsIdempotentAndKeepsLatestState .......................   Passed    0.03 sec
+      Start 83: RecoveryTest.RepeatedOpenCloseCyclesAppendAndReplayAllRecords
+83/90 Test #83: RecoveryTest.RepeatedOpenCloseCyclesAppendAndReplayAllRecords ........................   Passed    0.02 sec
+      Start 84: KVStoreConcurrencyStressTest.DeterministicDisjointKeyMixedWorkloadMatchesReference
+84/90 Test #84: KVStoreConcurrencyStressTest.DeterministicDisjointKeyMixedWorkloadMatchesReference ...   Passed    0.03 sec
+      Start 85: KVStoreConcurrencyStressTest.GroupCommitHotKeyMatchesRecoveredOrder
+85/90 Test #85: KVStoreConcurrencyStressTest.GroupCommitHotKeyMatchesRecoveredOrder ..................   Passed    0.53 sec
+      Start 86: StressTest.DeterministicMixedWorkloadReplaysReferenceModel
+86/90 Test #86: StressTest.DeterministicMixedWorkloadReplaysReferenceModel ...........................   Passed    0.08 sec
+      Start 87: StressTest.ManyOverwritesOfHotKeyRecoverLatestValue
+87/90 Test #87: StressTest.ManyOverwritesOfHotKeyRecoverLatestValue ..................................   Passed    0.06 sec
+      Start 88: StressTest.ManyDistinctKeysRecoverAllValues
+88/90 Test #88: StressTest.ManyDistinctKeysRecoverAllValues ..........................................   Passed    0.10 sec
+      Start 89: StressTest.LargeValuesRemainRecoverableWithinPracticalLimits
+89/90 Test #89: StressTest.LargeValuesRemainRecoverableWithinPracticalLimits .........................   Passed    0.17 sec
+      Start 90: StressTest.SnapshotPlusWalTailRecoversLargeState
+90/90 Test #90: StressTest.SnapshotPlusWalTailRecoversLargeState .....................................   Passed    0.03 sec
+
+100% tests passed, 0 tests failed out of 90
+
+Total Test time (real) =   2.96 sec

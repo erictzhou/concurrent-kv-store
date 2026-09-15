@@ -20,6 +20,12 @@ The pinned multicore results, raw CSV files, and profiling evidence are in
 in [Benchmark History](docs/Benchmark_History.md) and describe a different
 machine and earlier implementation.
 
+On the 12-core 5900X, shard-isolated in-memory writes reach 125.77M ops/sec
+(10.23× one core). Uniform reads reach 88.88M ops/sec (6.19×). Sync WAL
+stays near 3.0k writes/sec; GroupCommit reaches 25.69k writes/sec by sharing
+one sync across an average of 10.93 writes. One-hot-shard writes remain
+serialized and do not scale.
+
 ## Write acknowledgement
 
 | Mode | When `Set` or `Delete` returns | Crash guarantee |
