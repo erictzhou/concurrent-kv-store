@@ -306,6 +306,8 @@ WriteAheadLog::WriteAheadLog(std::string path, DurabilityPolicy policy,
           throw std::runtime_error("WAL sequence is exhausted");
         }
         next_sequence_ = replay.last_sequence + 1;
+      } else {
+        generation_ = 0;
       }
     } else {
       legacy_v2_ = true;
@@ -727,6 +729,7 @@ WalReplayResult WriteAheadLog::ReplayFromDetailed(
         !parse_header(input, result.generation) ||
         (offset != 0 && offset < kHeaderLength)) {
       result.status = WalReplayStatus::InvalidHeader;
+      result.last_good_offset = 0;
       result.stop_offset = 0;
       return result;
     }

@@ -275,6 +275,12 @@ TEST_F(WalTest, PartialV3HeaderIsRejectedBeforeReplayOrAppend) {
   std::unordered_map<std::string, std::string> recovered;
   EXPECT_EQ(WalReplayStatus::InvalidHeader, wal.ReplayDetailed(recovered).status);
   EXPECT_THROW(wal.AppendSet("bad", "value"), std::runtime_error);
+  const auto truncated = wal.ReplayFromAndTruncate(100, recovered);
+  EXPECT_TRUE(truncated.truncated);
+  EXPECT_EQ(0U, FileSize(wal_path_));
+  wal.AppendSet("recovered", "ok");
+  recovered.clear();
+  EXPECT_EQ("ok", Replay().at("recovered"));
 }
 
 TEST_F(WalTest, CorruptedV3HeaderChecksumIsRejected) {
