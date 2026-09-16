@@ -1,6 +1,7 @@
 #include "persistence/binary_io.h"
 #include "persistence/wal.h"
 
+#include <array>
 #include <cstdint>
 #include <chrono>
 #include <cerrno>
@@ -9,6 +10,7 @@
 #include <limits>
 #include <fcntl.h>
 #include <stdexcept>
+#include <string_view>
 #include <system_error>
 #include <unistd.h>
 #include <utility>
@@ -96,14 +98,25 @@ bool consume_le(const std::string& bytes, std::size_t& offset, T& value) {
   return true;
 }
 
-std::uint32_t crc32(const std::string& bytes) {
+constexpr std::array<std::uint32_t, 256> make_crc32_table() {
+  std::array<std::uint32_t, 256> table{};
+  for (std::uint32_t i = 0; i < table.size(); ++i) {
+    std::uint32_t entry = i;
+    for (int bit = 0; bit < 8; ++bit) {
+      const std::uint32_t mask = 0U - (entry & 1U);
+      entry = (entry >> 1U) ^ (0xEDB88320U & mask);
+    }
+    table[i] = entry;
+  }
+  return table;
+}
+
+constexpr auto kCrc32Table = make_crc32_table();
+
+std::uint32_t crc32(std::string_view bytes) {
   std::uint32_t crc = 0xFFFFFFFFU;
   for (const unsigned char byte : bytes) {
-    crc ^= byte;
-    for (int bit = 0; bit < 8; ++bit) {
-      const std::uint32_t mask = 0U - (crc & 1U);
-      crc = (crc >> 1U) ^ (0xEDB88320U & mask);
-    }
+    crc = (crc >> 8U) ^ kCrc32Table[(crc ^ byte) & 0xFFU];
   }
   return ~crc;
 }
@@ -373,32 +386,41 @@ void WriteAheadLog::EnsureHeaderLocked() {
   header_pending_ = false;
 }
 
-std::string WriteAheadLog::EncodeFrameLocked(const std::string& payload) {
-  std::string record;
-  if (!legacy_v2_) {
-    if (next_sequence_ == std::numeric_limits<std::uint64_t>::max()) {
-      throw std::runtime_error("WAL sequence is exhausted");
-    }
-    append_le64(record, next_sequence_++);
-  }
-  record.append(payload);
-  const LengthType length = checked_record_length(record.size());
-  const ChecksumType checksum = crc32(record);
+std::string WriteAheadLog::PrepareFrame(const std::string& payload) const {
+  const LengthType length =
+      checked_record_length(payload.size() + (legacy_v2_ ? 0 : sizeof(std::uint64_t)));
   std::string frame;
+  frame.reserve(payload.size() + (legacy_v2_ ? 8 : 16));
   if (legacy_v2_) {
     append_primitive(frame, length);
-    append_primitive(frame, checksum);
+    append_primitive(frame, crc32(payload));
   } else {
     append_le32(frame, length);
-    append_le32(frame, checksum);
+    append_le32(frame, 0);
+    append_le64(frame, 0);
   }
-  frame.append(record);
+  frame.append(payload);
   return frame;
 }
 
-void WriteAheadLog::WriteFrameLocked(const std::string& payload) {
+void WriteAheadLog::FinalizeFrameLocked(std::string& frame) {
+  if (legacy_v2_) return;
+  if (next_sequence_ == std::numeric_limits<std::uint64_t>::max()) {
+    throw std::runtime_error("WAL sequence is exhausted");
+  }
+  const std::uint64_t sequence = next_sequence_++;
+  for (std::size_t i = 0; i < sizeof(sequence); ++i) {
+    frame[8 + i] = static_cast<char>(sequence >> (8 * i));
+  }
+  const ChecksumType checksum = crc32(std::string_view(frame).substr(8));
+  for (std::size_t i = 0; i < sizeof(checksum); ++i) {
+    frame[4 + i] = static_cast<char>(checksum >> (8 * i));
+  }
+}
+
+void WriteAheadLog::WriteFrameLocked(std::string& frame) {
   EnsureHeaderLocked();
-  const std::string frame = EncodeFrameLocked(payload);
+  FinalizeFrameLocked(frame);
   output_.write(frame.data(), static_cast<std::streamsize>(frame.size()));
   output_.flush();
   if (!output_) throw std::runtime_error("failed to write WAL frame");
@@ -407,6 +429,7 @@ void WriteAheadLog::WriteFrameLocked(const std::string& payload) {
 }
 
 void WriteAheadLog::AppendPayload(std::string payload) {
+  std::string frame = PrepareFrame(payload);
   if (policy_ != DurabilityPolicy::GroupCommit) {
     std::lock_guard lock(io_mutex_);
     if (failure_) std::rethrow_exception(failure_);
@@ -414,7 +437,7 @@ void WriteAheadLog::AppendPayload(std::string payload) {
       throw std::runtime_error("WAL requires recovery before append");
     }
     try {
-      WriteFrameLocked(payload);
+      WriteFrameLocked(frame);
       if (policy_ == DurabilityPolicy::Sync) {
         SyncLocked();
         if (fault_hook_) fault_hook_(WalFaultPoint::AfterSync);
@@ -428,7 +451,7 @@ void WriteAheadLog::AppendPayload(std::string payload) {
   }
 
   auto pending = std::make_shared<Pending>();
-  pending->payload = std::move(payload);
+  pending->frame = std::move(frame);
   {
     std::lock_guard lock(queue_mutex_);
     if (failure_) std::rethrow_exception(failure_);
@@ -456,8 +479,7 @@ void WriteAheadLog::WriterLoop() {
       }
       std::size_t batch_bytes = 0;
       while (!queue_.empty() && batch.size() < max_batch_) {
-        const std::size_t next_bytes =
-            queue_.front()->payload.size() + (legacy_v2_ ? 8 : 16);
+        const std::size_t next_bytes = queue_.front()->frame.size();
         if (!batch.empty() && batch_bytes + next_bytes > kMaxBatchBytes) {
           break;
         }
@@ -473,12 +495,13 @@ void WriteAheadLog::WriterLoop() {
       EnsureHeaderLocked();
       std::size_t bytes = 0;
       for (const auto& request : batch) {
-        bytes += request->payload.size() + (legacy_v2_ ? 8 : 16);
+        bytes += request->frame.size();
       }
       std::string frames;
       frames.reserve(bytes);
       for (const auto& request : batch) {
-        frames.append(EncodeFrameLocked(request->payload));
+        FinalizeFrameLocked(request->frame);
+        frames.append(request->frame);
       }
       output_.write(frames.data(), static_cast<std::streamsize>(frames.size()));
       output_.flush();

@@ -231,7 +231,7 @@ class WriteAheadLog {
   mutable std::mutex io_mutex_;
   WalStats stats_;
   struct Pending {
-    std::string payload;
+    std::string frame;
     std::mutex mutex;
     std::condition_variable done;
     bool complete = false;
@@ -245,8 +245,9 @@ class WriteAheadLog {
   std::exception_ptr failure_;
 
   void AppendPayload(std::string payload);
-  std::string EncodeFrameLocked(const std::string& payload);
-  void WriteFrameLocked(const std::string& payload);
+  std::string PrepareFrame(const std::string& payload) const;
+  void FinalizeFrameLocked(std::string& frame);
+  void WriteFrameLocked(std::string& frame);
   void EnsureHeaderLocked();
   void SyncLocked();
   void WriterLoop();
