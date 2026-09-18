@@ -9,14 +9,14 @@
 - 0.5.x: Coarse reader/writer lock and concurrent correctness tests.
 - 0.6.0: 64 independent shard locks, Buffered/Sync/GroupCommit WAL policies,
   ordered batch writer, background automatic checkpoints, synchronized
-  snapshot publication, and pinned physical-core benchmark sweeps.
+  snapshot publication, portable sequenced WAL v3 with v2 replay, controlled
+  persistence fault tests, and pinned physical-core benchmark sweeps.
 
 ## Remaining local-engine work
 
-- Versioned, explicitly little-endian WAL format with generation and sequence
-  numbers, plus an upgrade path for v2 files.
-- Deterministic fault injection and process-kill cases at WAL sync, snapshot
-  publication, and rotation boundaries.
+- Portable snapshot encoding and generation-aware snapshot/WAL pairing.
+- Additional forced power-loss testing beyond process-exit and injected
+  exception boundaries.
 - A bounded or segmented WAL cleanup strategy for automatic checkpoints.
 - More checkpoint capture strategies if full-map copy pauses become material.
 - CLI configuration for Sync and GroupCommit; the CLI currently uses Buffered.

@@ -1,0 +1,1 @@
+mode=memory,distribution=disjoint-shard,read_percent=0,threads=12,group_delay_us=0,group_max_batch=0,seconds=1.00034,reads=0,writes=124495592,ops_per_sec=1.24453e+08,read_samples=0,read_p50_ns=0,read_p95_ns=0,read_p99_ns=0,read_p999_ns=0,write_samples=3890493,write_p50_ns=110,write_p95_ns=170,write_p99_ns=230,write_p999_ns=420

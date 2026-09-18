@@ -1,0 +1,1 @@
+mode=memory,distribution=uniform,read_percent=70,threads=1,group_delay_us=0,group_max_batch=0,seconds=1.00045,reads=9113273,writes=3838017,ops_per_sec=1.29455e+07,read_samples=285171,read_p50_ns=90,read_p95_ns=120,read_p99_ns=130,read_p999_ns=150,write_samples=119557,write_p50_ns=90,write_p95_ns=130,write_p99_ns=140,write_p999_ns=200

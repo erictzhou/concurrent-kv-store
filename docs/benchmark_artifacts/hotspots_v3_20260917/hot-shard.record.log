@@ -1,0 +1,2 @@
+[ perf record: Woken up 86 times to write data ]
+[ perf record: Captured and wrote 23.185 MB benchmark_results/hotspots_v3_20260917/hot-shard.perf.data (2872 samples) ]

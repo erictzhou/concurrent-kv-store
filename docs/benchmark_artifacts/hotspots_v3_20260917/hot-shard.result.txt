@@ -1,0 +1,1 @@
+mode=memory,distribution=hot-shard,read_percent=0,threads=12,group_delay_us=0,group_max_batch=0,seconds=1.50085,reads=0,writes=3715652,ops_per_sec=2.4757e+06,read_samples=0,read_p50_ns=0,read_p95_ns=0,read_p99_ns=0,read_p999_ns=0,write_samples=116121,write_p50_ns=2710,write_p95_ns=19500,write_p99_ns=31051,write_p999_ns=49280

@@ -5,11 +5,59 @@ This file records benchmark runs that are useful for comparison. The current
 [Benchmarks](Benchmarks.md). The older EC2 run below used another machine and
 an earlier implementation, so its throughput is not directly comparable.
 
-## 2026-09-17 — Physical-core and SMT scaling
+## 2026-09-17 — Optimized WAL v3 physical-core and SMT scaling
 
 | Field | Value |
 | --- | --- |
-| Final engine commit | `596a72eb9c4df7ae037851acf30af471f48369c3` |
+| Tested engine commit | `d040d98f22c0edfacae78958222e4b4c0e35d318` |
+| Machine | `agency-bench`, AMD Ryzen 9 5900X, 12 physical / 24 logical CPUs |
+| Build | GCC 13.3.0, Release, `-O3 -DNDEBUG` |
+| Placement | Pinned 1, 2, 4, 8, 12 physical workers; separate 24-worker SMT rows |
+| Repetitions | Three 500 ms runs per scaling point |
+| Filesystem | Home-directory ext4 on NVMe for WAL measurements |
+| Validation | Release, ThreadSanitizer, and ASan/UBSan CTest each passed 102/102 |
+| Artifacts | [Raw data](benchmark_artifacts/final_v3_opt_20260917/raw.csv), [median summary](benchmark_artifacts/final_v3_opt_20260917/summary.csv), [plot curves](benchmark_artifacts/final_v3_opt_20260917/plot_curves.csv), [perf](benchmark_artifacts/perf_v3_opt_20260917/), [GroupCommit delay](benchmark_artifacts/group_delay_v3_opt_20260917/summary.csv), [paired Buffered check](benchmark_artifacts/buffered_pair_v3_opt_20260917/) |
+
+The optimized suite produced 537 raw runs and 179 median rows. Shard-isolated
+in-memory SET reached 125.52M ops/sec at 12 cores (10.29×, 85.7%
+efficiency), while hot-shard writes fell to 2.48M ops/sec. Uniform GET reached
+88.98M ops/sec (6.19×), and uniform 70R/30W reached 34.20M ops/sec (2.61×).
+Sync WAL stayed near 2.96k writes/sec. GroupCommit reached 25.68k writes/sec
+using 10.97 writes per sync, and 44.56k writes/sec with 24 SMT workers.
+Buffered uniform SET reached 406.66k/sec at 12 cores, up from 363.09k/sec
+in the first v3 sweep. A paired v2/optimized v3 comparison still found a
+9.9% 12-writer Buffered throughput deficit. The current analysis, tails,
+and limitations are in [Benchmarks](Benchmarks.md).
+
+## 2026-09-17 — Initial WAL v3 scaling before WAL-lock optimization
+
+| Field | Value |
+| --- | --- |
+| Tested engine commit | `12fb33e184f7f85a020c1c30408a442a28cf1f30` |
+| Machine | `agency-bench`, AMD Ryzen 9 5900X, 12 physical / 24 logical CPUs |
+| Build | GCC 13.3.0, Release, `-O3 -DNDEBUG` |
+| Placement | Pinned 1, 2, 4, 8, 12 physical workers; separate 24-worker SMT rows |
+| Repetitions | Three 500 ms runs per scaling point |
+| Filesystem | Home-directory ext4 on NVMe for WAL measurements |
+| Validation | Release, ThreadSanitizer, and ASan/UBSan CTest each passed 102/102 |
+| Artifacts | [Raw data](benchmark_artifacts/final_v3_20260917/raw.csv), [median summary](benchmark_artifacts/final_v3_20260917/summary.csv), [plot curves](benchmark_artifacts/final_v3_20260917/plot_curves.csv), [perf](benchmark_artifacts/perf_v3_20260917/), [GroupCommit delay](benchmark_artifacts/group_delay_v3_20260917/summary.csv) |
+
+The initial v3 suite produced 537 raw runs and 179 median rows. Shard-isolated
+in-memory SET reached 125.34M ops/sec at 12 cores (10.29×, 85.7%
+efficiency), while hot-shard writes fell to 2.47M ops/sec. Uniform GET reached
+88.30M ops/sec (6.17×), and uniform 70R/30W reached 34.44M ops/sec (2.63×).
+Sync WAL stayed near 2.94k writes/sec. GroupCommit reached 25.68k writes/sec
+using 10.97 writes per sync, and 43.96k writes/sec with 24 SMT workers.
+Buffered uniform SET at 12 cores fell to 363.09k/sec from 462.32k/sec in
+the prior v2 sweep; a [controlled paired comparison](benchmark_artifacts/buffered_pair_v3_20260917/)
+confirmed a 21.4% 12-writer deficit before frame preparation and CRC32 work.
+The previous v2 run remains below for provenance.
+
+## 2026-09-17 — Earlier sharded WAL v2 scaling
+
+| Field | Value |
+| --- | --- |
+| Earlier sharded engine commit | `596a72eb9c4df7ae037851acf30af471f48369c3` |
 | Coarse-lock source commit | `1f3ec22870fa1b9ea130659ca6df22552991a5e0` |
 | Machine | `agency-bench`, AMD Ryzen 9 5900X, 12 physical / 24 logical CPUs |
 | Build | GCC 13.3.0, Release, `-O3 -DNDEBUG` |
@@ -17,9 +65,9 @@ an earlier implementation, so its throughput is not directly comparable.
 | Repetitions | Three 500 ms runs per scaling point |
 | Filesystem | Home-directory ext4 on NVMe for all WAL measurements |
 | Validation | Release, ThreadSanitizer, and ASan/UBSan CTest each passed 90/90 |
-| Artifacts | [Final raw data](benchmark_artifacts/final_20260917/raw.csv), [median summary](benchmark_artifacts/final_20260917/summary.csv), [plot curves](benchmark_artifacts/final_20260917/plot_curves.csv), [matched coarse baseline](benchmark_artifacts/coarse_gcc13_20260917/summary.csv), [perf](benchmark_artifacts/perf_20260917/) |
+| Artifacts | [v2 raw data](benchmark_artifacts/final_20260917/raw.csv), [median summary](benchmark_artifacts/final_20260917/summary.csv), [plot curves](benchmark_artifacts/final_20260917/plot_curves.csv), [matched coarse baseline](benchmark_artifacts/coarse_gcc13_20260917/summary.csv), [perf](benchmark_artifacts/perf_20260917/) |
 
-The final suite produced 537 raw runs and 179 median rows. Shard-isolated
+The earlier v2 suite produced 537 raw runs and 179 median rows. Shard-isolated
 in-memory SET reached 125.77M ops/sec at 12 physical cores (10.23× and 85.3%
 efficiency), while a one-hot-shard write workload fell to 2.46M ops/sec.
 Uniform GET reached 88.88M ops/sec (6.19×), and uniform 70R/30W reached

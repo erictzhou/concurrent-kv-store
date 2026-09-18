@@ -1,0 +1,2 @@
+[ perf record: Woken up 114 times to write data ]
+[ perf record: Captured and wrote 30.179 MB benchmark_results/hotspots_v3_20260917/uniform.perf.data (3755 samples) ]

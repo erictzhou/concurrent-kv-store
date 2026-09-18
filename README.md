@@ -20,10 +20,10 @@ The pinned multicore results, raw CSV files, and profiling evidence are in
 in [Benchmark History](docs/Benchmark_History.md) and describe a different
 machine and earlier implementation.
 
-On the 12-core 5900X, shard-isolated in-memory writes reach 125.77M ops/sec
-(10.23× one core). Uniform reads reach 88.88M ops/sec (6.19×). Sync WAL
-stays near 3.0k writes/sec; GroupCommit reaches 25.69k writes/sec by sharing
-one sync across an average of 10.93 writes. One-hot-shard writes remain
+On the 12-core 5900X, shard-isolated in-memory writes reach 125.52M ops/sec
+(10.29× one core). Uniform reads reach 88.98M ops/sec (6.19×). Sync WAL
+stays near 2.96k writes/sec; GroupCommit reaches 25.68k writes/sec by sharing
+one sync across an average of 10.97 writes. One-hot-shard writes remain
 serialized and do not scale.
 
 ## Write acknowledgement
@@ -41,12 +41,13 @@ The `WriteAheadLog` constructor accepts `DurabilityPolicy::Sync` or
 boundary. GroupCommit defaults to 32 records or a 20 µs batching window.
 Errors propagate to waiting writers; a failed write is not applied to memory.
 
-The WAL's v2 records have a length, CRC32 checksum, opcode, and key/value
-lengths. Recovery applies only complete validated records and can truncate a
-bad tail. The v2 format still uses native integer byte order and has no
-on-disk sequence number or generation; cross-endian files are unsupported.
-See [Architecture](docs/Architecture.md) for ordering and remaining crash
-consistency limits.
+New WAL files use v3: a checksummed, versioned header records byte order and
+generation, and little-endian frames carry CRC32 and ordered sequence
+numbers. Recovery applies only complete validated records and can truncate a
+bad tail. Existing v2 files remain readable and are upgraded on rotation.
+Snapshots still use a native-endian format; see
+[WAL Format](docs/WAL_Format.md) and [Architecture](docs/Architecture.md)
+for ordering and remaining limits.
 
 ## Build and use
 

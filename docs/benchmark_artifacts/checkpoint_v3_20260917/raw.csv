@@ -1,0 +1,6 @@
+implementation,repetition,ops_per_sec,p50_ns,p95_ns,p99_ns,p999_ns,max_ns
+background_v3,1,8.07417e+06,60,80,90,120,281582
+background_v3,2,8.22472e+06,60,80,90,150,264513
+background_v3,3,1.08529e+07,50,70,80,100,239903
+background_v3,4,9.12271e+06,50,70,80,130,238652
+background_v3,5,8.72526e+06,50,70,80,110,242793

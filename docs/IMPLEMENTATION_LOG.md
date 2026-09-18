@@ -97,3 +97,38 @@
   allowed data-race instrumentation to run; the full TSan CTest passed 90/90.
   Local AppleClang TSan also failed to start a trivial standalone program, so
   the successful remote run is the sanitizer evidence.
+- The original WAL v2 format lacked explicit byte order, file identity, and
+  on-disk ordering. Added a checksummed v3 header with little-endian version,
+  byte-order marker, and generation; each frame now carries a checksummed
+  sequence assigned by the ordered physical writer. Existing v2 logs remain
+  readable and appendable, and rotation upgrades them to v3. New files defer
+  header emission until the first record so an unused WAL remains empty.
+- Added replay validation for header integrity and contiguous sequence
+  numbers, refusal to append behind a corrupt tail, and safe truncation to
+  the last verified record. A recovery test found that an invalid header
+  combined with a nonzero replay offset needed to reset the verified offset
+  to zero; fixed this in commit `12fb33e`.
+- Added per-object fault hooks at WAL write/sync/rotation and snapshot
+  temp-write/sync/rename/directory-sync boundaries. Tests verify that failed
+  calls do not mutate memory or discard WAL history, while a fully written
+  but unacknowledged WAL record can still appear after recovery. Process-exit
+  tests cover abrupt exit after a Sync append and abandoned snapshot temp
+  files. Local and remote Release CTest passed 102/102 for `12fb33e`.
+- Completed a fresh full pinned sweep for `12fb33e` inside the existing
+  `kvstore` tmux session: 537 raw runs, 179 medians, separate SMT rows, perf
+  counters, batch-delay tests, and checkpoint latency. Release, TSan, and
+  ASan/UBSan CTest each passed 102/102. The earlier v2 measurements remain
+  archived as historical data.
+- Five paired Buffered WAL runs on the same 5900X showed the initial v3
+  implementation falling from 461,195 to 362,448 SET/s at 12 writers versus
+  v2. Sampling identified frame encoding in the WAL path. A lookup-table CRC32
+  and preallocated frames outside the writer lock raised a targeted 12-writer
+  median to 415,985 SET/s in the [raw trial](benchmark_artifacts/wal_frame_trial_20260917/raw.csv)
+  without changing on-disk bytes or GroupCommit's
+  throughput. Commit `d040d98` contains that change. Its fresh Git archive
+  produced another 537-run physical-core/SMT sweep, perf profiles, GroupCommit
+  delay measurements, checkpoint samples, and 102/102 Release, TSan, and
+  ASan/UBSan tests inside `kvstore`. The final source and binary SHA-256 are
+  recorded in `docs/Benchmarks.md`. A five-pair v2/optimized-v3 comparison
+  found +8.1% at one Buffered writer but -9.9% at 12; the remaining shared
+  sequencer critical section is documented as a limitation.

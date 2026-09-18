@@ -1,0 +1,115 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 21K of event 'cycles:u'
+# Event count (approx.): 1720415624
+#
+# Overhead  Command          Shared Object         Symbol
+# ........  ...............  ....................  ...........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+     4.38%  kv_store_scalin  kv_store_scaling      [.] kv::persistence::WriteAheadLog::EncodeFrameLocked(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)
+     3.37%  kv_store_scalin  [unknown]             [k] 0xffffffff8fa001c4
+            |
+            ---0xffffffff8fa001c4
+
+     2.11%  kv_store_scalin  [unknown]             [k] 0xffffffff8fef70a9
+            |
+            ---0xffffffff8fef70a9
+               0xffffffff8feaa70e
+               0xffffffff8feb8462
+               0xffffffff8febabbb
+               0xffffffff8febb399
+               0xffffffff8febc1e0
+               0xffffffff8fea18db
+               0xffffffff8fea1b55
+               0xffffffff911296fd
+               0xffffffff91129c27
+               0xffffffff8ff9e8e8
+               0xffffffff8ff9f0ec
+               0xffffffff8ff9f1eb
+               0xffffffff8ff9abd2
+               0xffffffff8ff9b2e0
+               0xffffffff8fd4858e
+               0xffffffff91119b65
+               0xffffffff8fa0012b
+
+     1.88%  kv_store_scalin  [unknown]             [k] 0xffffffff9031951d
+            |
+            ---0xffffffff9031951d
+               0xffffffff902e588b
+               0xffffffff902e5979
+               0xffffffff8fd46e2f
+               0xffffffff91119b65
+               0xffffffff8fa0012b
+
+     1.77%  kv_store_scalin  [unknown]             [k] 0xffffffff9018754f
+            |
+            ---0xffffffff9018754f
+               0xffffffff901876d4
+               0xffffffff90419115
+               0xffffffff90182f7b
+               0xffffffff903ff89d
+               0xffffffff903ffe2f
+               0xffffffff902e52db
+               0xffffffff902e58d1
+               0xffffffff902e5979
+               0xffffffff8fd46e2f
+               0xffffffff91119b65
+               0xffffffff8fa0012b
+
+     1.65%  kv_store_scalin  kv_store_scaling      [.] kv::persistence::WriteAheadLog::ReplayFromDetailed(unsigned long, std::unordered_map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::hash<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::equal_to<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > > >&) const
+            |
+            ---kv::persistence::WriteAheadLog::ReplayFromDetailed(unsigned long, std::unordered_map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::hash<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::equal_to<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > > >&) const
+
+     1.45%  kv_store_scalin  [unknown]             [k] 0xffffffff902e5385
+            |
+            ---0xffffffff902e5385
+               0xffffffff902e58d1
+               0xffffffff902e5979
+               0xffffffff8fd46e2f
+               0xffffffff91119b65
+               0xffffffff8fa0012b
+
+     1.40%  kv_store_scalin  [unknown]             [k] 0xffffffff8fa00080
+            |
+            ---0xffffffff8fa00080
+
+     1.34%  kv_store_scalin  [unknown]             [k] 0xffffffff8fb04104
+            |
+            ---0xffffffff8fb04104
+
+     1.16%  kv_store_scalin  [unknown]             [k] 0xffffffff8fea3ed7
+            |
+            ---0xffffffff8fea3ed7
+               0xffffffff8ffa0e31
+               0xffffffff8fe9c8eb
+               |
+                --1.16%--0xffffffff8fea8b39
+                          0xffffffff8fea9269
+                          0xffffffff8ff9e456
+                          0xffffffff8ff9ac58
+                          0xffffffff8ff9b2e0
+                          0xffffffff8fd4858e
+                          0xffffffff91119b65
+                          0xffffffff8fa0012b
+
+     1.01%  kv_store_scalin  [unknown]             [k] 0xffffffff8ffa0d66
+            |
+            ---0xffffffff8ffa0d66
+               0xffffffff8fe9c8eb
+               0xffffffff8fea8b39
+               0xffffffff8fea9269
+               0xffffffff8ff9e456
+               0xffffffff8ff9ac58
+               0xffffffff8ff9b2e0
+               0xffffffff8fd4858e
+               0xffffffff91119b65
+               0xffffffff8fa0012b
+
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#

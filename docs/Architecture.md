@@ -33,7 +33,7 @@ administrative operations concurrently.
 | Policy | WAL action before memory mutation | Successful acknowledgement means |
 | --- | --- | --- |
 | No WAL | None | In-memory change is visible. |
-| Buffered | Write one v2 frame and flush the C++ stream. | Bytes reached the kernel page cache; no stable-storage sync was requested. |
+| Buffered | Write one v3 frame and flush the C++ stream. | Bytes reached the kernel page cache; no stable-storage sync was requested. |
 | Sync | Write one frame, flush, and call `fdatasync`. | The filesystem synchronized that record before the call returned. |
 | GroupCommit | An ordered writer joins up to `max_batch` frames, flushes, and calls `fdatasync` once. | The caller's batch completed its sync. |
 
@@ -52,20 +52,40 @@ are both committed before either successful acknowledgement. Snapshot capture
 waits for every shard operation to finish, so the recorded WAL offset covers
 exactly the captured state.
 
-The WAL v2 frame remains:
+New WAL files use a v3 header and frames. All integer fields below are
+explicit little-endian; the file header and each frame have separate CRC32
+checksums:
 
 ```text
-[uint32 payload_length][uint32 crc32(payload)][payload bytes]
-SET:    [uint8 op=1][uint32 key_size][key][uint32 value_size][value]
-DELETE: [uint8 op=2][uint32 key_size][key]
+[4-byte magic KVW3][le32 version=3][le32 endian marker=0x01020304]
+[le64 generation][le32 header CRC32]
+
+[le32 record length][le32 CRC32(sequence + payload)]
+[le64 sequence][uint8 opcode][le32 key size][key]
+SET also carries [le32 value size][value]
 ```
 
-Payloads are bounded to 64 MiB. Replay validates framing, opcode, lengths,
-and checksum before changing the recovery map. It stops at the first bad or
-incomplete frame and can truncate the untrusted suffix to the last validated
-offset. The v2 format uses native integer byte order. It has no file header,
-generation, or on-disk sequence number, so cross-endian portability and
-generation-aware recovery are open format work.
+The writer assigns sequence numbers in physical WAL write order, starting at
+one within each generation. Rotation and clear start a new generation. A
+record, including its sequence, is bounded to 64 MiB; GroupCommit also bounds
+total batch bytes. Replay validates header, framing, opcode, lengths,
+checksum, and contiguous sequence numbers before changing the recovery map.
+It stops at the first bad or incomplete frame and can truncate the untrusted
+suffix to the last validated offset. A WAL with a corrupt tail rejects new
+appends until the tail is explicitly recovered or truncated. Existing v2
+files remain readable and appendable; rotation upgrades them to v3. v2
+retains its historical native-endian format. The exact byte layout and
+recovery rules are in [WAL Format](WAL_Format.md).
+
+Callers prepare frame storage before entering the WAL writer lock. The writer
+fills the next sequence and its CRC32 under that lock, so the checksum covers
+the actual on-disk order without holding the lock for frame allocation.
+
+Per-object failure hooks in WAL and Snapshot support deterministic tests at
+write-before-sync, sync completion, snapshot temp write, temp sync, rename,
+directory sync, and WAL rotation boundaries. A failed call never mutates the
+in-memory store, although a complete WAL record may still be replayed after
+an uncertain I/O completion.
 
 ## Checkpoints and recovery
 
@@ -99,8 +119,10 @@ did not receive success, as is normal for uncertain I/O completion.
 
 ## Remaining limits
 
-- WAL v2 integer fields use native byte order and lack generation/sequence
-  metadata. The file format is not cross-endian portable.
+- Legacy WAL v2 and snapshot v1 integer fields use native byte order.
+  Snapshots do not record the WAL generation, so copying unrelated
+  snapshot/WAL files together is unsupported even though new WAL files
+  carry generation metadata.
 - Automatic checkpoints copy the full map while briefly holding all shard
   locks. Foreground writers do not perform the copy, but they can wait during
   capture. Automatic checkpoints retain WAL history; explicit compaction is
